@@ -27,7 +27,7 @@
 #define REQUIRE_PLUGIN
 
 //ConVars
-ConVar convar_Status;
+ConVar convar_Status, convar_AllowThermalThruster;
 
 //Globals
 Handle g_hTimerHud;
@@ -61,6 +61,7 @@ public void OnPluginStart()
 	LoadTranslations("common.phrases");
 
 	convar_Status = CreateConVar("sm_tf2jail2_core_status", "1", "Status of the plugin.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+	convar_AllowThermalThruster = CreateConVar("sm_tf2jail2_thermal_thruster", "1", "Allow thermal thruster for prisoners", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 
 	g_hTimerHud = CreateHudSynchronizer();
 
@@ -69,6 +70,7 @@ public void OnPluginStart()
 	HookEvent("teamplay_round_active", Event_OnRoundActive);
 	HookEvent("teamplay_round_win", Event_OnRoundEnd);
 	HookEvent("player_spawn", Event_OnPlayerSpawn);
+	HookEvent("post_inventory_application", Event_OnPlayerRegeneration, EventHookMode_Post);
 
 	AddCommandListener(Listener_OnTeamChange, "jointeam");
 
@@ -198,8 +200,16 @@ public void Event_OnRoundStart(Event event, const char[] name, bool dontBroadcas
 
 	g_iTimer = 0;
 	KillTimerSafe(g_hTimer);
+}
 
-	if (GetClientCount(true) >= 3)
+public void Event_OnRoundActive(Event event, const char[] name, bool dontBroadcast)
+{
+	g_iTimer = 480;
+
+	KillTimerSafe(g_hTimer);
+	g_hTimer = CreateTimer(1.0, Timer_ShowTimer, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+	
+	if (TF2_GetTeamClientCount(TFTeam_Blue) + TF2_GetTeamClientCount(TFTeam_Red) >= 3)
 	{
 		CreateTimer(1.0, Timer_Ratios, _, TIMER_FLAG_NO_MAPCHANGE);
 	}
@@ -213,6 +223,8 @@ public Action Timer_Ratios(Handle timer)
 {
 	for (int i = 1; i <= MaxClients; i++)
 	{
+		int randomclient;
+		
 		if (!IsClientInGame(i))
 		{
 			continue;
@@ -225,14 +237,33 @@ public Action Timer_Ratios(Handle timer)
 			break;
 		}
 
-		if (IsClientInGame(i) && TF2_GetClientTeam(i) == TFTeam_Blue)
+		randomclient = TF2_GetRandomClient(TFTeam_Blue);
+		if (randomclient != -1)
 		{
-			TF2_ChangeClientTeam(i, TFTeam_Red);
-			TF2_RespawnPlayer(i);
+			TF2_ChangeClientTeam(randomclient, TFTeam_Red);
+			TF2_RespawnPlayer(randomclient);
 
 			CPrintToChat(i, "%s You have been moved for balance.", g_sGlobalTag);
 		}
 	}
+}
+
+int TF2_GetRandomClient(TFTeam team)
+{
+	int count;
+	int clients[MAXPLAYERS + 1];
+	for (int i = 1; i <= MaxClients; i++)
+	{
+		if (IsClientInGame(i) && IsPlayerAlive(i) && TF2_GetClientTeam(i) == team)
+		{
+			clients[count++] = i;
+		}
+	}
+	
+	if (count == 0)
+		return -1;
+	
+	return clients[GetRandomInt(0, count - 1)];
 }
 
 int TF2_GetTeamClientCount(TFTeam team)
@@ -248,14 +279,6 @@ int TF2_GetTeamClientCount(TFTeam team)
 	}
 
 	return value;
-}
-
-public void Event_OnRoundActive(Event event, const char[] name, bool dontBroadcast)
-{
-	g_iTimer = 480;
-
-	KillTimerSafe(g_hTimer);
-	g_hTimer = CreateTimer(1.0, Timer_ShowTimer, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
 }
 
 public Action Timer_ShowTimer(Handle timer, any data)
@@ -310,6 +333,30 @@ public void Event_OnPlayerSpawn(Event event, const char[] name, bool dontBroadca
 	}
 	else if (team == TFTeam_Blue)
 	{
+		RequestFrame(Frame_KillGuardWeapons, client);
+		TF2Attrib_RemoveByName(client, "no double jump");
+	}
+}
+
+public void Event_OnPlayerRegeneration(Event event, const char[] name, bool dontBroadcast)
+{
+	int client = GetClientOfUserId(GetEventInt(event, "userid"));
+
+	if (!GetConVarBool(convar_Status) || !IsPlayerIndex(client))
+	{
+		return;
+	}
+
+	TFTeam team = TF2_GetClientTeam(client);
+
+	if (team == TFTeam_Red)
+	{
+		RequestFrame(Frame_KillWeapons, client);
+		TF2Attrib_SetByName(client, "no double jump", 1.0);
+	}
+	else if (team == TFTeam_Blue)
+	{
+		RequestFrame(Frame_KillGuardWeapons, client);
 		TF2Attrib_RemoveByName(client, "no double jump");
 	}
 }
@@ -317,6 +364,8 @@ public void Event_OnPlayerSpawn(Event event, const char[] name, bool dontBroadca
 public void Frame_KillWeapons(any data)
 {
 	int client = data;
+	
+	bool bThermalThruster = GetConVarBool(convar_AllowThermalThruster);
 
 	bool sandvich;
 	for (int i = 0; i < 2; i++)
@@ -349,9 +398,68 @@ public void Frame_KillWeapons(any data)
 	{
 		SetEntPropEnt(client, Prop_Send, "m_hActiveWeapon", melee);
 	}
+	
+	if (TF2_GetPlayerClass(client) == TFClass_DemoMan)
+	{
+		int ent = -1;	
+		while ((ent = FindEntityByClassnameSafe(ent, "tf_wearable_demoshield")) != -1)
+		{
+			AcceptEntityInput(ent, "Kill");
+		}
+	}
+	
+	if (TF2_GetPlayerClass(client) == TFClass_Pyro)
+	{
+		int index = GetPlayerWeaponSlot(index, TFWeaponSlot_Secondary);
+		char weapon[MAX_NAME_LENGTH];
+		GetEntityClassname(index, weapon, sizeof(weapon));
+		
+		if (StrEqual(weapon, "tf_weapon_jar_gas") || (StrEqual(weapon, "tf_weapon_rocketpack") && !bThermalThruster))
+			TF2_RemoveWeaponSlot(client, TFWeaponSlot_Secondary);
+	}
 
 	TF2Attrib_SetByName(client, "effect bar recharge rate increased", 0.75);
 	TF2Attrib_SetByName(client, "mod see enemy health", 1.0);
+}
+
+int FindEntityByClassnameSafe(int iStart, char[] sClassName)
+{
+	while (iStart > -1 && !IsValidEntity(iStart))
+	{
+		iStart--;
+	}
+	
+	return FindEntityByClassname(iStart, sClassName);
+}
+
+public void Frame_KillGuardWeapons(any data)
+{
+	int client = data;
+	switch (TF2_GetPlayerClass(client))
+	{
+		case TFClass_Spy:
+		{
+			TF2_RemoveWeaponSlot(client, TFWeaponSlot_Grenade);
+			TF2_RemoveWeaponSlot(client, TFWeaponSlot_Building);
+		}
+		
+		case TFClass_Engineer:
+		{
+			TF2_RemoveWeaponSlot(client, TFWeaponSlot_Building);
+		}
+		
+		case TFClass_Scout, TFClass_Sniper:
+		{
+			int index = GetPlayerWeaponSlot(index, TFWeaponSlot_Secondary);
+			char weapon[MAX_NAME_LENGTH];
+			
+			if (index != -1)
+				GetEntityClassname(index, weapon, sizeof(weapon));
+			
+			if (StrContains(weapon, "tf_weapon_jar") != -1)
+				TF2_RemoveWeaponSlot(client, TFWeaponSlot_Secondary);
+		}
+	}
 }
 
 public Action Listener_OnTeamChange(int client, const char[] command, int argc)
