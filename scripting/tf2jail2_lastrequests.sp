@@ -405,6 +405,7 @@ public void Event_OnRoundStart(Event event, const char[] name, bool dontBroadcas
 				ShowSyncHudText(i, g_hHud_LastRequest, "Last request: %s", strlen(g_sCustomLR) > 0 ? g_sCustomLR : g_sCurrentLRName);
 			}
 		}
+	}
 }
 
 public void Event_OnRoundActive(Event event, const char[] name, bool dontBroadcast)
@@ -416,6 +417,7 @@ public void Event_OnRoundActive(Event event, const char[] name, bool dontBroadca
 
 	ExecuteLRCallback(g_sCurrentLRName, LR_CALLBACK_ROUNDACTIVE);
 
+	g_sCustomLR[0] = '\0';
 	g_bActiveRound = true;
 }
 
