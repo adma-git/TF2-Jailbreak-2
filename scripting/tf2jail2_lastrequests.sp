@@ -28,6 +28,8 @@
 
 //ConVars
 ConVar convar_Status;
+ConVar convar_RegiveLR;
+ConVar convar_DisplayLR;
 
 //Forwards
 Handle g_hForward_LRRegistrations;
@@ -39,13 +41,20 @@ UserMsg g_FadeUserMsgId;
 ArrayList g_hLastRequests_List;
 StringMap g_hLastRequests_Disabled;
 StringMap g_hLastRequests_NextRound;
+StringMap g_hLastRequests_GrantLR;
 StringMap g_hLastRequests_Events;
 
 StringMap g_hTrie_LRCalls;
 
-char g_sLRName[MAX_NAME_LENGTH];
+char g_sPrevLRName[MAX_NAME_LENGTH];
+char g_sCurrentLRName[MAX_NAME_LENGTH];
+char g_sNextLRName[MAX_NAME_LENGTH];
+char g_sCustomLR[32];
+
 int g_iClientLR;
 bool g_bLRNextRound;
+bool g_bGrantLR;
+bool g_bGrantedLR;
 Handle g_hHud_LastRequest;
 
 int g_iCustomLR;
@@ -76,9 +85,11 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("TF2Jail2_RegisterLR", Native_RegisterLR);
 	CreateNative("TF2Jail2_ExecuteLR", Native_ExecuteLR);
 	CreateNative("TF2Jail2_GiveLR", Native_GiveLR);
+	CreateNative("TF2Jail2_GrantedLR", Native_GrantedLR);
 	CreateNative("TF2Jail2_IsFreeday", Native_IsFreeday);
 	CreateNative("TF2Jail2_IsPendingFreeday", Native_IsPendingFreeday);
 	CreateNative("TF2Jail2_GetCurrentLR", Native_GetCurrentLR);
+	CreateNative("TF2Jail2_GetNextLR", Native_GetNextLR);
 
 	g_hForward_LRRegistrations = CreateGlobalForward("TF2Jail2_OnlastRequestRegistrations", ET_Ignore);
 
@@ -91,6 +102,8 @@ public void OnPluginStart()
 	LoadTranslations("common.phrases");
 
 	convar_Status = CreateConVar("sm_tf2jail2_lastrequests_status", "1", "Status of the plugin.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+	convar_RegiveLR = CreateConVar("sm_tf2jail2_regive_lr", "1", "Allow last request to be given when a next round last request is active.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+	convar_DisplayLR = CreateConVar("sm_tf2jail2_display_lr", "1", "Show the last request at the bottom.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 
 	RegConsoleCmd("sm_lr", Command_GiveLastRequest, "Give a prisoner a last request as Warden or Admin.");
 	RegConsoleCmd("sm_glr", Command_GiveLastRequest, "Give a prisoner a last request as Warden or Admin.");
@@ -125,6 +138,7 @@ public void OnPluginStart()
 	g_hLastRequests_Disabled = CreateTrie();
 	g_hLastRequests_NextRound = CreateTrie();
 	g_hLastRequests_Events = CreateTrie();
+	g_hLastRequests_GrantLR = CreateTrie();
 
 	g_hTrie_LRCalls = CreateTrie();
 
@@ -190,6 +204,7 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
 	{
 		PrintCenterTextAll(sArgs);
 		CPrintToChatAll("%s {mediumslateblue}%N's {default}custom last request is: %s", g_sGlobalTag, client, sArgs);
+		strcopy(g_sCustomLR, sizeof(g_sCustomLR), sArgs);
 		AttachParticle(client, "merasmus_dazed_bits", 2.0);
 
 		ClearLastRequest(-1, false);
@@ -204,7 +219,7 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
 
 public void TF2Jail2_OnWardenPhaseEnd_Post(int warden)
 {
-	if (warden == NO_WARDEN && strlen(g_sLRName) == 0 && g_bActiveRound)
+	if (warden == NO_WARDEN && strlen(g_sCurrentLRName) == 0 && strlen(g_sNextLRName) == 0 && g_bActiveRound)
 	{
 		ExecuteLastRequest(0, "Freeday For All No Warden");
 	}
@@ -262,9 +277,9 @@ public Action Command_CurrentLastRequest(int client, int args)
 		return Plugin_Handled;
 	}
 
-	if (strlen(g_sLRName) > 0)
+	if (strlen(g_sCurrentLRName) > 0)
 	{
-		CPrintToChat(client, "%s Current last request is: %s", g_sGlobalTag, g_sLRName);
+		CPrintToChat(client, "%s Current last request is: %s", g_sGlobalTag, g_sCurrentLRName);
 	}
 	else
 	{
@@ -368,10 +383,28 @@ public void Event_OnRoundStart(Event event, const char[] name, bool dontBroadcas
 
 		ExecuteLastRequest(0, "Freeday For All First Day");
 	}
+	
+	if (strlen(g_sNextLRName) > 0)
+		strcopy(g_sCurrentLRName, MAX_NAME_LENGTH, g_sNextLRName);
+		
+	strcopy(g_sPrevLRName, MAX_NAME_LENGTH, g_sCurrentLRName);
+	
+	g_sNextLRName[0] = '\0';
+	ExecuteLRCallback(g_sCurrentLRName, LR_CALLBACK_ROUNDSTART);
 
-	ExecuteLRCallback(g_sLRName, LR_CALLBACK_ROUNDSTART);
-
+	g_bGrantedLR = false;
 	g_bLRNextRound = false;
+	
+	if (GetConVarBool(convar_DisplayLR))
+	{
+		SetHudTextParams(0.4, 0.95, 99999.0, 0, 255, 0, 255, 0, 0.0, 0.0, 0.0);
+		for (int i = 1; i <= MaxClients; i++)
+		{
+			if (IsClientInGame(i) && !IsFakeClient(i))
+			{
+				ShowSyncHudText(i, g_hHud_LastRequest, "Last request: %s", strlen(g_sCustomLR) > 0 ? g_sCustomLR : g_sCurrentLRName);
+			}
+		}
 }
 
 public void Event_OnRoundActive(Event event, const char[] name, bool dontBroadcast)
@@ -381,7 +414,7 @@ public void Event_OnRoundActive(Event event, const char[] name, bool dontBroadca
 		return;
 	}
 
-	ExecuteLRCallback(g_sLRName, LR_CALLBACK_ROUNDACTIVE);
+	ExecuteLRCallback(g_sCurrentLRName, LR_CALLBACK_ROUNDACTIVE);
 
 	g_bActiveRound = true;
 }
@@ -392,12 +425,12 @@ public void Event_OnRoundEnd(Event event, const char[] name, bool dontBroadcast)
 	{
 		return;
 	}
-
-	if (!g_bLRNextRound)
-	{
-		ExecuteLRCallback(g_sLRName, LR_CALLBACK_ROUNDEND);
-		ClearLastRequest(-1, false);
-	}
+	
+	if (strlen(g_sPrevLRName) > 0 && g_bGrantedLR)
+		ExecuteLRCallback(g_sPrevLRName, LR_CALLBACK_ROUNDEND);
+		
+	ExecuteLRCallback(g_sCurrentLRName, LR_CALLBACK_ROUNDEND);
+	ClearLastRequest(-1, false);
 
 	g_bActiveRound = false;
 }
@@ -420,11 +453,26 @@ void ShowGiveLastRequestMenu(int client, bool admin = false)
 		CPrintToChat(client, "%s {red}ERROR: {default}You are currently not the Warden.", g_sGlobalTag);
 		return;
 	}
-
-	if (strlen(g_sLRName) > 0)
+	
+	if (strlen(g_sCurrentLRName) > 0)
 	{
-		CPrintToChat(client, "%s {red}ERROR: {default}Last request is currently active already.", g_sGlobalTag);
-		return;
+		if (!GetConVarBool(convar_RegiveLR))
+		{
+			CPrintToChat(client, "%s {red}ERROR: {default}Last request is currently active already.", g_sGlobalTag); 
+			return;
+		}
+		
+		if (!g_bGrantLR)
+		{
+			CPrintToChat(client, "%s {red}ERROR: {default}Cannot regive last request during %s", g_sGlobalTag, g_sCurrentLRName); 
+			return;
+		}
+			
+		if (g_bGrantedLR)
+		{
+			CPrintToChat(client, "%s {red}ERROR: {default}Last request has already been granted. Type /cllr to clear the last request.", g_sGlobalTag); 
+			return;
+		}	
 	}
 
 	Handle menu = CreateMenu(MenuHandler_GiveLastRequestMenu);
@@ -483,6 +531,8 @@ void ShowLastRequestMenu(int client, int given = -1, bool admin = false)
 	{
 		CPrintToChatAll("%s {mediumslateblue}%N {default}has received a last request. %s", g_sGlobalTag, client, admin ? "(admin)" : "");
 	}
+	
+	g_bGrantedLR = true;
 }
 
 bool ExecuteLastRequest(int client, const char[] name, bool next_round = true)
@@ -500,26 +550,30 @@ bool ExecuteLastRequest(int client, const char[] name, bool next_round = true)
 		CPrintToChatAll("%s Console has executed the last request%s: {mediumslateblue}%s", g_sGlobalTag, next_round ? " next round" : "", name);
 	}
 
-	strcopy(g_sLRName, MAX_NAME_LENGTH, name);
+	GetTrieValue(g_hLastRequests_GrantLR, name, g_bGrantLR);
 	GetTrieValue(g_hLastRequests_NextRound, name, g_bLRNextRound);
+	strcopy(g_bLRNextRound ? g_sNextLRName : g_sCurrentLRName, MAX_NAME_LENGTH, name);
 
-	SetHudTextParams(0.4, 0.95, 99999.0, 0, 255, 0, 255, 0, 0.0, 0.0, 0.0);
-	for (int i = 1; i <= MaxClients; i++)
+	if (GetConVarBool(convar_DisplayLR))
 	{
-		if (IsClientInGame(i) && !IsFakeClient(i))
+		SetHudTextParams(0.4, 0.95, 99999.0, 0, 255, 0, 255, 0, 0.0, 0.0, 0.0);
+		for (int i = 1; i <= MaxClients; i++)
 		{
-			ShowSyncHudText(i, g_hHud_LastRequest, "Last Request: %s", g_sLRName);
+			if (IsClientInGame(i) && !IsFakeClient(i))
+			{
+				ShowSyncHudText(i, g_hHud_LastRequest, "%N selected: %s", client, g_bLRNextRound ? g_sNextLRName : g_sCurrentLRName);
+			}
 		}
 	}
 
-	ExecuteLRCallback(g_sLRName, LR_CALLBACK_CHOSEN);
+	ExecuteLRCallback(g_bLRNextRound ? g_sNextLRName : g_sCurrentLRName, LR_CALLBACK_CHOSEN);
 
 	return true;
 }
 
 void ClearLastRequest(int admin = -1, bool announce = true)
 {
-	g_sLRName[0] = '\0';
+	g_sCurrentLRName[0] = '\0';
 	g_iClientLR = 0;
 	g_bLRNextRound = false;
 
@@ -562,6 +616,7 @@ void ParseLastRequests()
 		ClearArray(g_hLastRequests_List);
 		ClearTrie(g_hLastRequests_Disabled);
 		ClearTrie(g_hLastRequests_NextRound);
+		ClearTrie(g_hLastRequests_GrantLR);
 		ClearTrieCustom(g_hLastRequests_Events);
 
 		do
@@ -576,6 +631,9 @@ void ParseLastRequests()
 
 			bool next_round = KvGetBool(kv, "next_round", true);
 			SetTrieValue(g_hLastRequests_NextRound, sName, next_round);
+			
+			bool grant_lr = KvGetBool(kv, "grant_lr", true);
+			SetTrieValue(g_hLastRequests_GrantLR, sName, grant_lr);
 
 			if (KvJumpToKey(kv, "events") && KvGotoFirstSubKey(kv))
 			{
@@ -863,6 +921,7 @@ public int MenuHandler_GiveLastRequestMenu(Menu menu, MenuAction action, int par
 				return;
 			}
 
+			g_bGrantedLR = true;
 			ShowLastRequestMenu(target, param1);
 		}
 
@@ -895,15 +954,16 @@ public int MenuHandler_LastRequestMenu(Menu menu, MenuAction action, int param1,
 	{
 		case MenuAction_Select:
 		{
+			g_bGrantedLR = true;
 			char sInfo[32]; char sDisplay[MAX_NAME_LENGTH];
 			GetMenuItem(menu, param2, sInfo, sizeof(sInfo), _, sDisplay, sizeof(sDisplay));
 
 			if (StrEqual(sDisplay, "Random Last Request"))
 			{
 				int style = ITEMDRAW_DISABLED;
-				while (style != ITEMDRAW_DISABLED && !StrEqual(sDisplay, "Random Last Request"))
+				while (style == ITEMDRAW_DISABLED && StrEqual(sDisplay, "Random Last Request"))
 				{
-					int random = GetRandomInt(2, GetMenuItemCount(menu) - 1);
+					int random = GetRandomInt(2, GetMenuItemCount(menu) - 1);					
 					GetMenuItem(menu, random, sInfo, sizeof(sInfo), style, sDisplay, sizeof(sDisplay));
 				}
 			}
@@ -949,6 +1009,11 @@ public int Native_GiveLR(Handle plugin, int numParams)
 	ShowGiveLastRequestMenu(client);
 }
 
+public int Native_GrantedLR(Handle plugin, int numParams)
+{
+	return view_as<bool>(g_bGrantedLR);
+}
+
 public int Native_IsFreeday(Handle plugin, int numParams)
 {
 	return bHasFreeday[GetNativeCell(1)];
@@ -961,7 +1026,12 @@ public int Native_IsPendingFreeday(Handle plugin, int numParams)
 
 public int Native_GetCurrentLR(Handle plugin, int numParams)
 {
-	SetNativeString(1, g_sLRName, GetNativeCell(2));
+	SetNativeString(1, g_sCurrentLRName, GetNativeCell(2));
+}
+
+public int Native_GetNextLR(Handle plugin, int numParams)
+{
+	SetNativeString(1, g_sNextLRName, GetNativeCell(2));
 }
 
 //////////////////////////////////////////////////
@@ -972,8 +1042,9 @@ public void TF2Jail2_OnlastRequestRegistrations()
 	TF2Jail2_RegisterLR("Custom Last Request", Custom_OnLRChosen, _, _, _);
 	TF2Jail2_RegisterLR("Freeday For All First Day", _, _, FreedayForAllFirstDay_OnLRRoundActive, FreedayForAllFirstDay_OnLRRoundEnd);
 	TF2Jail2_RegisterLR("Freeday For All No Warden", FreedayForAllNoWarden_OnLRChosen, _, _, FreedayForAllNoWarden_OnLRRoundEnd);
-	TF2Jail2_RegisterLR("Freeday For All", FreedayForAll_OnLRChosen, FreedayForAll_OnLRRoundStart, FreedayForAll_OnLRRoundActive, FreedayForAll_OnLRRoundEnd);
-	TF2Jail2_RegisterLR("Freeday For Some", FreedayForSome_OnLRChosen, FreedayForSome_OnLRRoundStart, FreedayForSome_OnLRRoundActive, FreedayForSome_OnLRRoundEnd);
+	TF2Jail2_RegisterLR("Freeday For All", _, _, FreedayForAll_OnLRRoundActive, FreedayForAll_OnLRRoundEnd);
+	TF2Jail2_RegisterLR("Freeday For Some", FreedayForSome_OnLRChosen, FreedayForSome_OnLRRoundStart, _, FreedayForSome_OnLRRoundEnd);
+	TF2Jail2_RegisterLR("Freeday For Yourself", FreedayForYourself_OnLRChosen, FreedayForYourself_OnLRRoundStart, _, FreedayForYourself_OnLRRoundEnd);
 }
 
 //////////////////////////////////////////////////
@@ -1054,16 +1125,6 @@ public void FreedayForAllNoWarden_OnLRRoundEnd(int chooser)
 //////////////////////////////////////////////////
 //Freeday For All
 
-public void FreedayForAll_OnLRChosen(int chooser)
-{
-
-}
-
-public void FreedayForAll_OnLRRoundStart(int chooser)
-{
-
-}
-
 public void FreedayForAll_OnLRRoundActive(int chooser)
 {
 	for (int i = 1; i <= MaxClients; i++)
@@ -1113,12 +1174,32 @@ public void FreedayForSome_OnLRRoundStart(int chooser)
 	}
 }
 
-public void FreedayForSome_OnLRRoundActive(int chooser)
+public void FreedayForSome_OnLRRoundEnd(int chooser)
 {
-
+	for (int i = 1; i <= MaxClients; i++)
+	{
+		if (IsClientInGame(i))
+		{
+			RemoveClientFreeday(i, -1, false);
+		}
+	}
 }
 
-public void FreedayForSome_OnLRRoundEnd(int chooser)
+//////////////////////////////////////////////////
+//Freeday For Yourself
+
+public void FreedayForYourself_OnLRChosen(int chooser)
+{
+	bShouldGiveFreeday[chooser] = true;
+}
+
+public void FreedayForYourself_OnLRRoundStart(int chooser)
+{
+	if (bShouldGiveFreeday[chooser])
+		MakeClientFreeday(chooser, chooser, true);
+}
+
+public void FreedayForYourself_OnLRRoundEnd(int chooser)
 {
 	for (int i = 1; i <= MaxClients; i++)
 	{
