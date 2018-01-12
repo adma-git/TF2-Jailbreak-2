@@ -1318,13 +1318,13 @@ stock void TF2_ForceRoundWin(TFTeam team)
 	AcceptEntityInput(entity, "SetWinner");
 }
 
-stock int GetTeamAliveClientCount(int team)
+stock int TF2_GetTeamAliveClientCount(TFTeam team)
 {
 	int amount;
 
 	for (int i = 1; i <= MaxClients; i++)
 	{
-		if (IsClientInGame(i) && IsPlayerAlive(i) && GetClientTeam(i) == team)
+		if (IsClientInGame(i) && IsPlayerAlive(i) && TF2_GetClientTeam(i) == team)
 		{
 			amount++;
 		}
@@ -1333,14 +1333,14 @@ stock int GetTeamAliveClientCount(int team)
 	return amount;
 }
 
-stock int GetRandomPlayer(int team)
+stock int TF2_GetRandomPlayer(TFTeam team)
 {
 	int[] clients = new int[MaxClients];
 	int count;
 
 	for (int i = 1; i <= MaxClients; i++)
 	{
-		if (IsClientInGame(i) && IsPlayerAlive(i) && GetClientTeam(i) == team)
+		if (IsClientInGame(i) && IsPlayerAlive(i) && TF2_GetClientTeam(i) == team)
 		{
 			clients[count++] = i;
 		}

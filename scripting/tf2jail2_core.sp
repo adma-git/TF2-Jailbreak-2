@@ -27,7 +27,9 @@
 #define REQUIRE_PLUGIN
 
 //ConVars
-ConVar convar_Status, convar_AllowThermalThruster;
+ConVar convar_Status;
+ConVar convar_AllowThermalThruster;
+ConVar convar_BalanceRatio;
 
 //Globals
 Handle g_hTimerHud;
@@ -62,7 +64,8 @@ public void OnPluginStart()
 
 	convar_Status = CreateConVar("sm_tf2jail2_core_status", "1", "Status of the plugin.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 	convar_AllowThermalThruster = CreateConVar("sm_tf2jail2_thermal_thruster", "1", "Allow thermal thruster for prisoners", FCVAR_NOTIFY, true, 0.0, true, 1.0);
-
+	convar_BalanceRatio = CreateConVar("sm_tf2jail2_balance_ratio", "0.5", "What ratio of guards to prisoners the auto-balance stops", FCVAR_NOTIFY, true, 0.1, true, 1.0);
+	
 	g_hTimerHud = CreateHudSynchronizer();
 
 	HookEvent("teamplay_round_start", Event_OnRoundStart);
@@ -91,7 +94,7 @@ public Action Command_HolyShit(int client, int args)
 	for (int i = 0; i < 15; i++)
 	{
 		float vecRandom[3];
-		GetRandomPostion(vecRandom);
+		GetRandomPosition(vecRandom);
 
 		int Medipack = CreateEntityByName("item_healthkit_full");
 		DispatchKeyValue(Medipack, "OnPlayerTouch", "!self,Kill,,0,-1");
@@ -108,7 +111,7 @@ public Action Command_HolyShit(int client, int args)
 	return Plugin_Handled;
 }
 
-void GetRandomPostion(float result[3])
+void GetRandomPosition(float result[3])
 {
 	float vWorldMins[3]; float vWorldMaxs[3];
 	GetEntPropVector(0, Prop_Data, "m_WorldMins", vWorldMins);
@@ -209,9 +212,9 @@ public void Event_OnRoundActive(Event event, const char[] name, bool dontBroadca
 	KillTimerSafe(g_hTimer);
 	g_hTimer = CreateTimer(1.0, Timer_ShowTimer, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
 	
-	if (TF2_GetTeamClientCount(TFTeam_Blue) + TF2_GetTeamClientCount(TFTeam_Red) >= 3)
+	if (TF2_GetTeamAliveClientCount(TFTeam_Blue) + TF2_GetTeamAliveClientCount(TFTeam_Red) >= 3)
 	{
-		CreateTimer(1.0, Timer_Ratios, _, TIMER_FLAG_NO_MAPCHANGE);
+		BalanceTeams();
 	}
 	else
 	{
@@ -219,66 +222,32 @@ public void Event_OnRoundActive(Event event, const char[] name, bool dontBroadca
 	}
 }
 
-public Action Timer_Ratios(Handle timer)
+void BalanceTeams()
 {
 	for (int i = 1; i <= MaxClients; i++)
-	{
-		int randomclient;
-		
+	{	
 		if (!IsClientInGame(i))
 		{
 			continue;
 		}
 
-		float Ratio = float(TF2_GetTeamClientCount(TFTeam_Blue)) / float(TF2_GetTeamClientCount(TFTeam_Red));
+		float Ratio = float(TF2_GetTeamAliveClientCount(TFTeam_Blue)) / float(TF2_GetTeamAliveClientCount(TFTeam_Red));
 
-		if (Ratio <= 0.5)
+		if (Ratio <= GetConVarFloat(convar_BalanceRatio))
 		{
 			break;
 		}
 
-		randomclient = TF2_GetRandomClient(TFTeam_Blue);
+		int randomclient;
+		randomclient = TF2_GetRandomPlayer(TFTeam_Blue);
 		if (randomclient != -1)
 		{
 			TF2_ChangeClientTeam(randomclient, TFTeam_Red);
 			TF2_RespawnPlayer(randomclient);
 
-			CPrintToChat(i, "%s You have been moved for balance.", g_sGlobalTag);
+			CPrintToChat(randomclient, "%s You have been moved for balance.", g_sGlobalTag);
 		}
 	}
-}
-
-int TF2_GetRandomClient(TFTeam team)
-{
-	int count;
-	int clients[MAXPLAYERS + 1];
-	for (int i = 1; i <= MaxClients; i++)
-	{
-		if (IsClientInGame(i) && IsPlayerAlive(i) && TF2_GetClientTeam(i) == team)
-		{
-			clients[count++] = i;
-		}
-	}
-	
-	if (count == 0)
-		return -1;
-	
-	return clients[GetRandomInt(0, count - 1)];
-}
-
-int TF2_GetTeamClientCount(TFTeam team)
-{
-	int value = 0;
-
-	for (int i = 1; i <= MaxClients; i++)
-	{
-		if (IsClientInGame(i) && IsPlayerAlive(i) && TF2_GetClientTeam(i) == team)
-		{
-			value++;
-		}
-	}
-
-	return value;
 }
 
 public Action Timer_ShowTimer(Handle timer, any data)

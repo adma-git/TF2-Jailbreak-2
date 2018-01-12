@@ -23,8 +23,12 @@
 //ConVars
 ConVar convar_Status;
 ConVar convar_WardenPhase;
+ConVar convar_InstaLockWarden;
+ConVar convar_PrisonerQueue;
 
 ConVar convar_LastWarden;
+ConVar convar_WardenQueue;
+ConVar convar_WardenModel;
 
 //Forwards
 Handle g_hForward_OnWardenSet_Post;
@@ -44,7 +48,6 @@ int g_iTimer_WardenPhase;
 Handle g_hTimer_WardenPhase;
 
 bool g_bActiveRound;
-bool g_bFreeWarden;
 
 bool g_bLockWarden;
 bool g_bWardenPhase = true;
@@ -90,17 +93,16 @@ public void OnPluginStart()
 
 	convar_Status = CreateConVar("sm_tf2jail2_warden_status", "1", "Status of the plugin.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 	convar_WardenPhase = CreateConVar("sm_tf2jail2_warden_phase_seconds", "20", "Time amount for the Warden phase.", FCVAR_NOTIFY, true, 1.0);
+	convar_WardenQueue = CreateConVar("sm_tf2jail2_warden_queue", "1", "Enable or disable warden queue", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+	convar_InstaLockWarden = CreateConVar("sm_tf2jail2_instant_lock_warden", "0", "Lock warden instantly when warden is removed", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+	convar_WardenModel = CreateConVar("sm_tf2jail2_warden_model", "1", "Enable or disable warden model change", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+	convar_PrisonerQueue = CreateConVar("sm_tf2jail2_prisoner_warden_queue", "0", "Allow red players to queue for warden", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 
 	//Dummy ConVar
 	convar_LastWarden = CreateConVar("sm_tf2jail2_last_warden", "0", "", FCVAR_PROTECTED);
 
-	RegConsoleCmd("sm_w", Command_GoWarden, "Go Warden is the current server state allows you to.");
-	RegConsoleCmd("sm_warden", Command_GoWarden, "Go Warden is the current server state allows you to.");
-
-	RegConsoleCmd("sm_qw", Command_QueueWarden, "Set yourself as Warden if no current warden is active or queue for it.");
-	RegConsoleCmd("sm_queuewarden", Command_QueueWarden, "Set yourself as Warden if no current warden is active or queue for it.");
-	RegConsoleCmd("sm_wq", Command_QueueWarden, "Set yourself as Warden if no current warden is active or queue for it.");
-	RegConsoleCmd("sm_wardenqueue", Command_QueueWarden, "Set yourself as Warden if no current warden is active or queue for it.");
+	RegConsoleCmd("sm_w", Command_GoWarden, "Set yourself as Warden if no current warden is active or queue for it.");
+	RegConsoleCmd("sm_warden", Command_GoWarden, "Set yourself as Warden if no current warden is active or queue for it.");
 
 	RegConsoleCmd("sm_uw", Command_UnWarden, "Remove yourself from Warden if you're Warden.");
 	RegConsoleCmd("sm_unwarden", Command_UnWarden, "Remove yourself from Warden if you're Warden.");
@@ -244,7 +246,7 @@ public void Event_OnRoundEnd(Event event, const char[] name, bool dontBroadcast)
 	EndWardenPhase();
 	g_bLockWarden = false;
 
-	RemoveWarden(-1, false);
+	RemoveWarden(-1, false, false);
 
 	g_bActiveRound = false;
 }
@@ -274,10 +276,33 @@ public Action Command_GoWarden(int client, int args)
 	{
 		return Plugin_Handled;
 	}
-
-	if (g_hTimer_WardenPhase != null)
+	
+	if (!IsPlayerAlive(client))
 	{
-		Command_QueueWarden(client, 0);
+		CPrintToChat(client, "%s {red}ERROR: {default}You cannot become Warden while dead.", g_sGlobalTag);
+		return Plugin_Handled;
+	}
+	
+	if (g_iCurrentWarden != NO_WARDEN)
+	{
+		CPrintToChat(client, "%s {red}ERROR: {default}Warden is currently active.", g_sGlobalTag);
+		return Plugin_Handled;
+	}
+	
+	if (g_iCurrentWarden == client)
+	{
+		CPrintToChat(client, "%s {red}ERROR: {default}You are already the Warden.", g_sGlobalTag);
+		return Plugin_Handled;
+	}
+	if (!GetConVarBool(convar_PrisonerQueue) && TF2_GetClientTeam(client) == TFTeam_Red)
+	{
+		CPrintToChat(client, "%s {red}ERROR: {default}You cannot become Warden as a prisoner.", g_sGlobalTag);
+		return Plugin_Handled;
+	}
+
+	if (g_hTimer_WardenPhase != null && GetConVarInt(convar_WardenQueue))
+	{
+		QueueWarden(client);
 		return Plugin_Handled;
 	}
 
@@ -299,53 +324,7 @@ public Action Command_GoWarden(int client, int args)
 		return Plugin_Handled;
 	}
 
-	if (g_hTimer_WardenPhase != null)
-	{
-		CPrintToChat(client, "%s {red}ERROR: {default}You cannot use this command during the Warden pick phase.", g_sGlobalTag);
-		return Plugin_Handled;
-	}
-
-	if (g_iCurrentWarden != NO_WARDEN)
-	{
-		CPrintToChat(client, "%s {red}ERROR: {default}Warden is currently active.", g_sGlobalTag);
-		return Plugin_Handled;
-	}
-
-	if (!g_bFreeWarden)
-	{
-		CPrintToChat(client, "%s {red}ERROR: {default}You cannot go Warden at this time.", g_sGlobalTag);
-		return Plugin_Handled;
-	}
-
 	SetWarden(client);
-
-	return Plugin_Handled;
-}
-
-public Action Command_QueueWarden(int client, int args)
-{
-	if (!GetConVarBool(convar_Status) || client == 0)
-	{
-		return Plugin_Handled;
-	}
-
-	if (TF2Jail2_IsWardenBanned(client))
-	{
-		CPrintToChat(client, "%s {red}ERROR: {default}You are banned from Warden, please contact an administrator for assistance.", g_sGlobalTag);
-		return Plugin_Handled;
-	}
-
-	if (g_bIsInStack[client])
-	{
-		CPrintToChat(client, "%s {red}ERROR: {default}You are already in the Warden queue. [Line Size: %i]", g_sGlobalTag, g_iStackSize);
-		return Plugin_Handled;
-	}
-
-	PushStackCell(g_hSWardenQueue, GetClientUserId(client));
-	g_iStackSize++;
-	g_bIsInStack[client] = true;
-
-	CPrintToChat(client, "%s You are now in the Warden queue. [Line Size: %i]", g_sGlobalTag, g_iStackSize);
 
 	return Plugin_Handled;
 }
@@ -448,7 +427,7 @@ public void Frame_StartWardenProcess(any data)
 
 bool PickNewWarden()
 {
-	if (IsStackEmpty(g_hSWardenQueue) || g_iStackSize == 0)
+	if (IsStackEmpty(g_hSWardenQueue) || g_iStackSize == 0 || !GetConVarBool(convar_WardenQueue))
 	{
 		return false;
 	}
@@ -486,16 +465,26 @@ bool SetWarden(int client, int admin = -1, bool announce = true)
 
 	if (g_iCurrentWarden != NO_WARDEN)
 	{
-		RemoveWarden(admin, true);
+		RemoveWarden(admin, true, false);
 	}
 
 	if (TF2_GetClientTeam(client) != TFTeam_Blue)
 	{
+		float Ratio = float(TF2_GetTeamAliveClientCount(TFTeam_Blue) + 1) / float(TF2_GetTeamAliveClientCount(TFTeam_Red));
+		if (Ratio > GetConVarFloat(FindConVar("sm_tf2jail2_balance_ratio")))
+		{
+			int random; 
+			random = TF2_GetRandomPlayer(TFTeam_Blue);
+			TF2_ChangeClientTeam(random, TFTeam_Red);
+			TF2_RespawnPlayer(random);
+		}
+		
 		TF2_ChangeClientTeam(client, TFTeam_Blue);
 		TF2_RespawnPlayer(client);
 	}
 
 	g_iCurrentWarden = client;
+	EndWardenPhase();
 
 	if (announce)
 	{
@@ -512,17 +501,18 @@ bool SetWarden(int client, int admin = -1, bool announce = true)
 	AttachParticle(client, "spell_batball_impact_blue", 2.0);
 	//SetEntityRenderColor(client, 0, 212, 255, 255);
 
-	if (TF2_GetPlayerClass(client) == TFClass_Soldier)
+	if (TF2_GetPlayerClass(client) == TFClass_Soldier && GetConVarBool(convar_WardenModel))
 	{
 		SetVariantString("models/player/warden_soldier/warden_soldier.mdl");
 		AcceptEntityInput(client, "SetCustomModel");
 		SetEntProp(client, Prop_Send, "m_bCustomModelRotates", true);
 		SetEntProp(client, Prop_Send, "m_bUseClassAnimations", true);
+		
+		RemoveValveHat(client);
+		HideWeapons(client, true);
 	}
 
 	TF2_RegeneratePlayer(client);
-	RemoveValveHat(client);
-	HideWeapons(client, true);
 
 	SetHudTextParams(0.7, 0.95, 99999.0, 255, 00, 0, 255, 0, 0.0, 0.0, 0.0);
 	for (int i = 1; i <= MaxClients; i++)
@@ -539,6 +529,44 @@ bool SetWarden(int client, int admin = -1, bool announce = true)
 	Call_Finish();
 
 	return true;
+}
+
+void QueueWarden(int client)
+{
+	if (!GetConVarBool(convar_Status) || !GetConVarBool(convar_WardenQueue) || client == 0)
+	{
+		return;
+	}
+	
+	if (!IsPlayerAlive(client))
+	{
+		CPrintToChat(client, "%s {red}ERROR: {default}You cannot queue for Warden when you are dead.", g_sGlobalTag);
+		return;
+	}
+	
+	if (!GetConVarBool(convar_PrisonerQueue) && TF2_GetClientTeam(client) == TFTeam_Red)
+	{
+		CPrintToChat(client, "%s {red}ERROR: {default}You cannot queue for Warden when you are a prisoner.", g_sGlobalTag);
+		return;
+	}
+
+	if (TF2Jail2_IsWardenBanned(client))
+	{
+		CPrintToChat(client, "%s {red}ERROR: {default}You are banned from Warden, please contact an administrator for assistance.", g_sGlobalTag);
+		return;
+	}
+
+	if (g_bIsInStack[client])
+	{
+		CPrintToChat(client, "%s {red}ERROR: {default}You are already in the Warden queue. [Line Size: %i]", g_sGlobalTag, g_iStackSize);
+		return;
+	}
+
+	PushStackCell(g_hSWardenQueue, GetClientUserId(client));
+	g_iStackSize++;
+	g_bIsInStack[client] = true;
+
+	CPrintToChat(client, "%s You are now in the Warden queue. [Line Size: %i]", g_sGlobalTag, g_iStackSize);
 }
 
 void RemoveValveHat(int client, bool unhide = false)
@@ -617,7 +645,7 @@ int FindEntityByClassnameSafe(int iStart, const char[] strClassname)
 	return FindEntityByClassname(iStart, strClassname);
 }
 
-void RemoveWarden(int admin = -1, bool announce = true)
+void RemoveWarden(int admin = -1, bool announce = true, bool timer = true)
 {
 	if (g_iCurrentWarden == NO_WARDEN)
 	{
@@ -651,13 +679,17 @@ void RemoveWarden(int admin = -1, bool announce = true)
 			ClearSyncHud(i, g_hudCurrentWarden);
 		}
 	}
+	
+	if (timer && g_bActiveRound && !GetConVarBool(convar_InstaLockWarden))
+	{
+		g_bWardenPhase = true;
+		RequestFrame(Frame_StartWardenProcess);
+	}
 
 	Call_StartForward(g_hForward_OnWardenRemoved_Post);
 	Call_PushCell(old_warden);
 	Call_PushCell(admin);
 	Call_Finish();
-
-	g_bFreeWarden = false;
 }
 
 stock void RemoveFromStack(Handle &stack, int value)
@@ -693,14 +725,12 @@ void EndWardenPhase()
 
 	KillTimerSafe(g_hTimer_WardenPhase);
 
-	g_bLockWarden = true;
+	g_bLockWarden = GetConVarBool(convar_InstaLockWarden);
 	CPrintToChatAll("%s The Warden pick phase has ended.", g_sGlobalTag);
 
 	Call_StartForward(g_hForward_OnWardenPhaseEnd_Post);
 	Call_PushCell(g_iCurrentWarden);
 	Call_Finish();
-
-	g_bFreeWarden = true;
 }
 
 //////////////////////////////////////////////////
@@ -716,8 +746,8 @@ public Action Timer_EndWardenPhase(Handle timer, any data)
 		return Plugin_Stop;
 	}
 
-	g_iTimer_WardenPhase--;
 	PrintHintTextToAll("Warden phase ends in %i seconds...", g_iTimer_WardenPhase);
+	g_iTimer_WardenPhase--;
 
 	if (g_iTimer_WardenPhase <= 0 || PickNewWarden())
 	{
