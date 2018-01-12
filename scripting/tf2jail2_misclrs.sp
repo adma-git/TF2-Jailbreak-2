@@ -71,6 +71,7 @@ public void TF2Jail2_OnlastRequestRegistrations()
 	TF2Jail2_RegisterLR("Rapid Rocket Round", _, _, RRR_OnLRRoundActive, RRR_OnLRRoundEnd);
 	TF2Jail2_RegisterLR("Low Gravity Round", _, _, LG_OnLRRoundActive, LG_OnLRRoundEnd);
 	TF2Jail2_RegisterLR("Hide n Seek", _, _, HnS_OnLRRoundActive, HnS_OnLRRoundEnd);
+	TF2Jail2_RegisterLR("Guards Melee Only", _, GMO_OnLRRoundStart, _, _);
 }
 
 /* Rapid Rocket Round */
@@ -193,7 +194,7 @@ public Action Timer_HnSTimer(Handle hTimer)
 		g_iHnSHideTime--;
 	else
 	{
-		g_hHnSSeekTimer = CreateTimer(1.0, Timer_HnSSeek, INVALID_HANDLE, TIMER_REPEAT);
+		g_hHnSSeekTimer = CreateTimer(1.0, Timer_HnSSeek, INVALID_HANDLE, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
 		
 		for (int i = 1; i <= MaxClients; i++) if (IsClientInGame(i) && IsPlayerAlive(i) && !IsFakeClient(i))
 		{
@@ -250,6 +251,19 @@ public Action OnTakeDamage(int iVictim, int &iAttacker, int &iInflictor, float &
 }
 
 /* End Hide n Seek */
+
+/* Guards Melee Only */
+
+public void GMO_OnLRRoundStart(int chooser)
+{
+	for (int i = 1; i <= MaxClients; i++) if (IsClientInGame(i) && IsPlayerAlive(i) && !IsFakeClient(i))
+	{
+		if (TF2_GetClientTeam(i) == TFTeam_Blue)
+			TF2_StripToMelee(i);
+	}
+}
+
+/* End Guards Melee Only */
 
 bool ClearTimer(Handle &hTimer)
 {

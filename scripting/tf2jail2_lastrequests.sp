@@ -392,6 +392,7 @@ public void Event_OnRoundStart(Event event, const char[] name, bool dontBroadcas
 	g_sNextLRName[0] = '\0';
 	ExecuteLRCallback(g_sCurrentLRName, LR_CALLBACK_ROUNDSTART);
 
+	g_iClientLR = 0;
 	g_bGrantedLR = false;
 	g_bLRNextRound = false;
 	
@@ -432,7 +433,7 @@ public void Event_OnRoundEnd(Event event, const char[] name, bool dontBroadcast)
 		ExecuteLRCallback(g_sPrevLRName, LR_CALLBACK_ROUNDEND);
 		
 	ExecuteLRCallback(g_sCurrentLRName, LR_CALLBACK_ROUNDEND);
-	ClearLastRequest(-1, false);
+	ClearLastRequest(-1, false, true);
 
 	g_bActiveRound = false;
 }
@@ -501,12 +502,12 @@ void ShowGiveLastRequestMenu(int client, bool admin = false)
 void ShowLastRequestMenu(int client, int given = -1, bool admin = false)
 {
 	Handle menu = CreateMenu(MenuHandler_LastRequestMenu);
-	SetMenuTitle(menu, "TF2Jail 2 - Last Requests\n \n");
+	SetMenuTitle(menu, "TF2Jail 2 - Last Requests\n \n"); 
+	
 
 	AddMenuItem(menu, "", "Random Last Request");
 	AddMenuItem(menu, "", "Custom Last Request");
-	AddMenuItem(menu, "", "---", ITEMDRAW_DISABLED);
-
+	
 	for (int i = 0; i < GetArraySize(g_hLastRequests_List); i++)
 	{
 		char sName[MAX_NAME_LENGTH];
@@ -573,23 +574,25 @@ bool ExecuteLastRequest(int client, const char[] name, bool next_round = true)
 	return true;
 }
 
-void ClearLastRequest(int admin = -1, bool announce = true)
+void ClearLastRequest(int admin = -1, bool announce = true, bool roundreset = false)
 {
-	g_sCurrentLRName[0] = '\0';
-	g_iClientLR = 0;
-	g_bLRNextRound = false;
-
-	g_iCustomLR = 0;
-
-	for (int i = 1; i <= MaxClients; i++)
+	if (!roundreset)
 	{
-		if (IsClientInGame(i))
+		g_iClientLR = 0;
+		for (int i = 1; i <= MaxClients; i++)
 		{
-			ClearSyncHud(i, g_hHud_LastRequest);
-			RemoveClientFreeday(i, admin);
-			bShouldGiveFreeday[i] = false;
+			if (IsClientInGame(i))
+			{
+				ClearSyncHud(i, g_hHud_LastRequest);
+				RemoveClientFreeday(i, admin);
+				bShouldGiveFreeday[i] = false;
+			}
 		}
 	}
+	
+	g_sCurrentLRName[0] = '\0';	
+	g_bLRNextRound = false;
+	g_iCustomLR = 0;
 
 	iChosen = 0;
 
@@ -1076,6 +1079,8 @@ public void FreedayForAllFirstDay_OnLRRoundActive(int chooser)
 
 	PrintCenterTextAll("Freeday for all is active! (First day freeday)");
 	CreateTimer(2.5, Timer_DeFade, _, TIMER_FLAG_NO_MAPCHANGE);
+	
+	TF2Jail2_LockWarden(true);
 }
 
 public void FreedayForAllFirstDay_OnLRRoundEnd(int chooser)
@@ -1106,7 +1111,7 @@ public void FreedayForAllNoWarden_OnLRChosen(int chooser)
 		}
 	}
 
-	PrintCenterTextAll("Freeday for all is active! (Warden MIA)");
+	PrintCenterTextAll("Freeday for all is active! (No warden)");
 	CreateTimer(2.5, Timer_DeFade, _, TIMER_FLAG_NO_MAPCHANGE);
 }
 
@@ -1142,6 +1147,8 @@ public void FreedayForAll_OnLRRoundActive(int chooser)
 	CreateTimer(5.0, Timer_DeFade, _, TIMER_FLAG_NO_MAPCHANGE);
 
 	CPrintToChatAll("%s {mediumslateblue}%N {default}has chosen a freeday for all this round.", g_sGlobalTag, chooser);
+	
+	TF2Jail2_LockWarden(true);
 }
 
 public void FreedayForAll_OnLRRoundEnd(int chooser)
@@ -1197,8 +1204,10 @@ public void FreedayForYourself_OnLRChosen(int chooser)
 
 public void FreedayForYourself_OnLRRoundStart(int chooser)
 {
-	if (bShouldGiveFreeday[chooser])
-		MakeClientFreeday(chooser, chooser, true);
+	if (IsClientInGame(chooser) && bShouldGiveFreeday[chooser])
+	{
+		MakeClientFreeday(chooser, chooser, false);
+	}
 }
 
 public void FreedayForYourself_OnLRRoundEnd(int chooser)
@@ -1233,7 +1242,7 @@ void MakeClientFreeday(int client, int giver = -1, int announce = true)
 	GetClientAbsOrigin(client, vecPosition);
 
 	AttachParticle(client, "merasmus_zap_beam_bits", 2.0);
-	SetEntityRenderColor(client, 222, 224, 224, 255);
+	Uberize(client, true);
 	bHasFreeday[client] = true;
 
 	if (announce)
@@ -1256,7 +1265,7 @@ void RemoveClientFreeday(int client, int remover = -1, bool announce = true)
 		return;
 	}
 
-	SetEntityRenderColor(client, 255, 255, 255, 255);
+	Uberize(client, false);
 	bHasFreeday[client] = false;
 
 	if (announce)
@@ -1414,6 +1423,15 @@ void PerformBlind(int target, int amount)
 	}
 
 	EndMessage();
+}
+
+void Uberize(int iClient, bool bSet)
+{
+	if (!IsClientInGame(iClient))
+		return;
+	
+	SetEntProp(iClient, Prop_Send, "m_bForcedSkin", bSet);
+	SetEntProp(iClient, Prop_Send, "m_nForcedSkin", 2);
 }
 
 public Action Timer_DeFade(Handle timer)
