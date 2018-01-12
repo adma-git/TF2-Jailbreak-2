@@ -52,6 +52,7 @@ char g_sNextLRName[MAX_NAME_LENGTH];
 char g_sCustomLR[32];
 
 int g_iClientLR;
+int g_iPrevClientLR;
 bool g_bLRNextRound;
 bool g_bGrantLR;
 bool g_bGrantedLR;
@@ -133,6 +134,7 @@ public void OnPluginStart()
 	HookEvent("teamplay_round_active", Event_OnRoundActive);
 	HookEvent("teamplay_round_win", Event_OnRoundEnd);
 	HookEvent("player_death", Event_OnPlayerDeath);
+	HookEvent("player_hurt", Event_OnPlayerHurt);
 
 	g_hLastRequests_List = CreateArray(ByteCountToCells(MAX_NAME_LENGTH));
 	g_hLastRequests_Disabled = CreateTrie();
@@ -146,8 +148,14 @@ public void OnPluginStart()
 	g_hHud_LastRequest = CreateHudSynchronizer();
 }
 
+public void OnClientPutInServer(int client)
+{
+	SDKHook(client, SDKHook_OnTakeDamage, Hook_OnTakeDamage); // Godmode for freedays && lr receiver
+}
+
 public void OnMapEnd()
 {
+	g_iPrevClientLR = 0;
 	ClearLastRequest(-1, false);
 }
 
@@ -390,8 +398,9 @@ public void Event_OnRoundStart(Event event, const char[] name, bool dontBroadcas
 	strcopy(g_sPrevLRName, MAX_NAME_LENGTH, g_sCurrentLRName);
 	
 	g_sNextLRName[0] = '\0';
-	ExecuteLRCallback(g_sCurrentLRName, LR_CALLBACK_ROUNDSTART);
-
+	ExecuteLRCallback(g_iClientLR, g_sCurrentLRName, LR_CALLBACK_ROUNDSTART);
+	
+	g_iPrevClientLR = g_iClientLR;
 	g_iClientLR = 0;
 	g_bGrantedLR = false;
 	g_bLRNextRound = false;
@@ -416,7 +425,7 @@ public void Event_OnRoundActive(Event event, const char[] name, bool dontBroadca
 		return;
 	}
 
-	ExecuteLRCallback(g_sCurrentLRName, LR_CALLBACK_ROUNDACTIVE);
+	ExecuteLRCallback(g_iClientLR, g_sCurrentLRName, LR_CALLBACK_ROUNDACTIVE);
 
 	g_sCustomLR[0] = '\0';
 	g_bActiveRound = true;
@@ -430,9 +439,9 @@ public void Event_OnRoundEnd(Event event, const char[] name, bool dontBroadcast)
 	}
 	
 	if (strlen(g_sPrevLRName) > 0 && g_bGrantedLR)
-		ExecuteLRCallback(g_sPrevLRName, LR_CALLBACK_ROUNDEND);
+		ExecuteLRCallback(g_iPrevClientLR, g_sPrevLRName, LR_CALLBACK_ROUNDEND);
 		
-	ExecuteLRCallback(g_sCurrentLRName, LR_CALLBACK_ROUNDEND);
+	ExecuteLRCallback(g_iClientLR, g_sCurrentLRName, LR_CALLBACK_ROUNDEND);
 	ClearLastRequest(-1, false, true);
 
 	g_bActiveRound = false;
@@ -569,7 +578,7 @@ bool ExecuteLastRequest(int client, const char[] name, bool next_round = true)
 		}
 	}
 
-	ExecuteLRCallback(g_bLRNextRound ? g_sNextLRName : g_sCurrentLRName, LR_CALLBACK_CHOSEN);
+	ExecuteLRCallback(g_iClientLR, g_bLRNextRound ? g_sNextLRName : g_sCurrentLRName, LR_CALLBACK_CHOSEN);
 
 	return true;
 }
@@ -753,10 +762,11 @@ void RegisterLR(Handle plugin, const char[] name, TF2Jail2_Func_OnLRChosen onlrc
 	SetTrieArray(g_hTrie_LRCalls, name, callbacks, sizeof(callbacks));
 }
 
-void ExecuteLRCallback(const char[] name, int callback)
+void ExecuteLRCallback(int clientuid, const char[] name, int callback)
 {
 	StringMap events;
 	GetTrieValue(g_hLastRequests_Events, name, events);
+	int client = GetClientOfUserId(clientuid);
 
 	if (events != null)
 	{
@@ -787,8 +797,6 @@ void ExecuteLRCallback(const char[] name, int callback)
 
 		if (actions != null)
 		{
-			int client = GetClientOfUserId(g_iClientLR);
-
 			char sValue[64];
 
 			if (GetTrieString(actions, "open_cells", sValue, sizeof(sValue)) && strlen(sValue) > 0)
@@ -892,7 +900,7 @@ void ExecuteLRCallback(const char[] name, int callback)
 	if (callbacks[callback] != null && GetForwardFunctionCount(callbacks[callback]) > 0)
 	{
 		Call_StartForward(callbacks[callback]);
-		Call_PushCell(GetClientOfUserId(g_iClientLR));
+		Call_PushCell(GetClientOfUserId(clientuid));
 		Call_Finish();
 	}
 }
@@ -926,6 +934,7 @@ public int MenuHandler_GiveLastRequestMenu(Menu menu, MenuAction action, int par
 				return;
 			}
 
+			g_iClientLR = GetClientUserId(param1);
 			g_bGrantedLR = true;
 			ShowLastRequestMenu(target, param1);
 		}
@@ -1231,6 +1240,28 @@ public void Event_OnPlayerDeath(Event event, const char[] name, bool dontBroadca
 	RemoveClientFreeday(client, -1, true);
 }
 
+public void Event_OnPlayerHurt(Event event, const char[] name, bool dontBroadcast)
+{
+	int userid = GetEventInt(event, "userid");
+	int userid_attacker = GetEventInt(event, "attacker");
+
+	int client = GetClientOfUserId(userid);
+	int attacker = GetClientOfUserId(userid_attacker);
+
+	if (!GetConVarBool(convar_Status) || !IsPlayerIndex(client) || !IsPlayerIndex(attacker))
+	{
+		return;
+	}
+
+	TFTeam team = TF2_GetClientTeam(client);
+	TFTeam team_attacker = TF2_GetClientTeam(attacker);
+
+	if (team_attacker == TFTeam_Red && team == TFTeam_Blue)
+	{
+		RemoveClientFreeday(attacker, _, false);
+	}
+}
+
 void MakeClientFreeday(int client, int giver = -1, int announce = true)
 {
 	if (bHasFreeday[client] || TF2_GetClientTeam(client) != TFTeam_Red)
@@ -1443,4 +1474,22 @@ public Action Timer_DeFade(Handle timer)
 			PerformBlind(i, 0);
 		}
 	}
+}
+
+public Action Hook_OnTakeDamage(int iVictim, int &iAttacker, int &iInflictor, float &fDamage, int &iDamageType, int &iWep, float fDmgForce[3], float fDmgPos[3], int iDmgCustom)
+{
+	int clientlr = GetClientOfUserId(g_iClientLR);
+	if (0 > iVictim > MaxClients
+	|| 0 > iAttacker > MaxClients)
+	{
+		return Plugin_Continue;
+	}
+	
+	if (TF2_GetClientTeam(iAttacker) == TFTeam_Blue && TF2Jail2_GetWarden() != iAttacker && (iVictim == clientlr || bHasFreeday[iVictim]))
+	{
+		fDamage = 0.0;
+		return Plugin_Changed;
+	}
+	
+	return Plugin_Continue;
 }

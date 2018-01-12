@@ -279,6 +279,14 @@ public void Event_OnRoundEnd(Event event, const char[] name, bool dontBroadcast)
 {
 	g_iTimer = 0;
 	KillTimerSafe(g_hTimer);
+	
+	for (int i = 1; i <= MaxClients; i++)
+	{
+		if (IsClientInGame(i))
+		{
+			CancelClientMenu(i, true);
+		}
+	}
 
 	SetConVarBool(FindConVar("mp_friendlyfire"), false);
 	SetConVarBool(FindConVar("tf_avoidteammates_pushaway"), false);
