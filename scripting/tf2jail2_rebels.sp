@@ -31,6 +31,7 @@ Handle g_hForward_OnRebel_Post;
 bool g_bLate;
 bool g_bIsMarkedRebel[MAXPLAYERS + 1];
 Handle g_hRebelTimer[MAXPLAYERS + 1];
+int g_iParticle[MAXPLAYERS + 1][2];
 
 //////////////////////////////////////////////////
 //Info
@@ -66,6 +67,15 @@ public void OnPluginStart()
 
 	HookEvent("player_hurt", Event_OnPlayerHurt);
 	HookEvent("player_death", Event_OnPlayerDeath_Pre, EventHookMode_Pre);
+}
+
+public void OnMapStart()
+{
+	for (int i = 0; i < sizeof(g_iParticle); i++)
+	{
+		g_iParticle[i][0] = -1;
+		g_iParticle[i][1] = -1;
+	}
 }
 
 public void OnConfigsExecuted()
@@ -121,6 +131,8 @@ public Action Event_OnPlayerDeath_Pre(Event event, const char[] name, bool dontB
 
 	int client = GetClientOfUserId(userid);
 	int attacker = GetClientOfUserId(userid_attacker);
+	
+	RemoveParticles2(client);
 
 	if (!GetConVarBool(convar_Status) || !IsPlayerIndex(client) || !IsPlayerIndex(attacker))
 	{
@@ -164,7 +176,9 @@ void MarkRebel(int client)
 {
 	if (!g_bIsMarkedRebel[client])
 	{
-		SetEntityRenderColor(client, 255, 165, 0, 255);
+		RemoveParticles2(client);
+		AttachParticle2(client, "superrare_burning2", "effect_hand_R");
+		SetEntityRenderColor(client, 0, 255, 0, 255);
 		g_bIsMarkedRebel[client] = true;
 		CPrintToChat(client, "%s You have been marked as a rebel.", g_sGlobalTag);
 
@@ -182,6 +196,60 @@ void MarkRebel(int client)
 	g_hRebelTimer[client] = CreateTimer(GetConVarFloat(convar_RebelTimer), Timer_DisableRebel, GetClientUserId(client), TIMER_REPEAT);
 }
 
+void AttachParticle2(int iClient, char[] sParticleType, char[] sBoneAttachment)
+{
+	for (int i = 0; i <= 1; i++)
+	{
+		if (g_iParticle[iClient][i] != -1)
+			continue;
+		
+		g_iParticle[iClient][i] = CreateEntityByName("info_particle_system");
+		char sName[128];
+		
+		if (IsValidEdict(g_iParticle[iClient][i]))
+		{
+			float position[3];
+			GetEntPropVector(iClient, Prop_Send, "m_vecOrigin", position);
+			
+			TeleportEntity(g_iParticle[iClient][i], position, NULL_VECTOR, NULL_VECTOR);
+			
+			DispatchKeyValue(iClient, "targetname", sName);
+			
+			DispatchKeyValue(g_iParticle[iClient][i], "targetname", "tf2particle");
+			DispatchKeyValue(g_iParticle[iClient][i], "parentname", sName);
+			DispatchKeyValue(g_iParticle[iClient][i], "effect_name", sParticleType);
+			DispatchSpawn(g_iParticle[iClient][i]);
+			SetVariantString("!activator");
+			AcceptEntityInput(g_iParticle[iClient][i], "SetParent", iClient, g_iParticle[iClient][i], 0);
+			
+			if (strlen(sBoneAttachment) > 0)
+			{
+				SetVariantString(sBoneAttachment);
+				AcceptEntityInput(g_iParticle[iClient][i], "SetParentAttachmentMaintainOffset", g_iParticle[iClient][i], g_iParticle[iClient][i], 0);
+			}
+			
+			ActivateEntity(g_iParticle[iClient][i]);
+			AcceptEntityInput(g_iParticle[iClient][i], "start");
+			
+			break;
+		}
+	}
+}
+
+void RemoveParticles2(int iClient)
+{
+	for (int i = 0; i <= 1; i++)
+	{
+		if (g_iParticle[iClient][i] != -1)
+		{
+			if (IsValidEdict(g_iParticle[iClient][i]))
+				AcceptEntityInput(g_iParticle[iClient][i], "Kill");
+				
+			g_iParticle[iClient][i] = -1;
+		}
+	}
+}
+
 //////////////////////////////////////////////////
 //Timers
 
@@ -195,6 +263,7 @@ public Action Timer_DisableRebel(Handle timer, any data)
 		return Plugin_Stop;
 	}
 
+	RemoveParticles2(client);
 	SetEntityRenderColor(client, 255, 255, 255, 255);
 	g_bIsMarkedRebel[client] = false;
 

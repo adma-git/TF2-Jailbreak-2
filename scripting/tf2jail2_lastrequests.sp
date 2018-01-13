@@ -30,6 +30,8 @@
 ConVar convar_Status;
 ConVar convar_RegiveLR;
 ConVar convar_DisplayLR;
+ConVar convar_UberFreedays;
+ConVar convar_RainbowFreedays;
 
 //Forwards
 Handle g_hForward_LRRegistrations;
@@ -62,7 +64,10 @@ int g_iCustomLR;
 
 bool bHasFreeday[MAXPLAYERS + 1];
 bool bShouldGiveFreeday[MAXPLAYERS + 1];
+int g_iPlayerGlowEntity[MAXPLAYERS + 1];
+int g_iParticle[MAXPLAYERS + 1][2];
 int iChosen;
+
 
 bool g_bActiveRound;
 bool g_bNewMap;
@@ -105,6 +110,9 @@ public void OnPluginStart()
 	convar_Status = CreateConVar("sm_tf2jail2_lastrequests_status", "1", "Status of the plugin.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 	convar_RegiveLR = CreateConVar("sm_tf2jail2_regive_lr", "1", "Allow last request to be given when a next round last request is active.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 	convar_DisplayLR = CreateConVar("sm_tf2jail2_display_lr", "1", "Show the last request at the bottom.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+	
+	convar_UberFreedays = CreateConVar("sm_tf2jail2_uber_freedays", "0", "Give freedays an uber effect", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+	convar_RainbowFreedays = CreateConVar("sm_tf2jail2_rainbiw_freedays", "1", "Give freedays a rainbow outline effect", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 
 	RegConsoleCmd("sm_lr", Command_GiveLastRequest, "Give a prisoner a last request as Warden or Admin.");
 	RegConsoleCmd("sm_glr", Command_GiveLastRequest, "Give a prisoner a last request as Warden or Admin.");
@@ -163,6 +171,12 @@ public void OnMapStart()
 {
 	g_bNewMap = true;
 
+	for (int i = 0; i < sizeof(g_iParticle); i++)
+	{
+		g_iParticle[i][0] = -1;
+		g_iParticle[i][1] = -1;
+	}
+	
 	PrecacheSound("coach/coach_attack_here.wav");
 }
 
@@ -186,6 +200,17 @@ public void OnAllPluginsLoaded()
 public void OnPluginEnd()
 {
 	ClearLastRequest(-1, false);
+	
+	int index = -1;
+	while ((index = FindEntityByClassname(index, "tf_glow")) != -1)
+	{
+		char strName[64];
+		GetEntPropString(index, Prop_Data, "m_iName", strName, sizeof(strName));
+		if(StrEqual(strName, "RainbowGlow"))
+		{
+			AcceptEntityInput(index, "Kill");
+		}
+	}
 }
 
 public void OnClientDisconnect(int client)
@@ -1273,7 +1298,15 @@ void MakeClientFreeday(int client, int giver = -1, int announce = true)
 	GetClientAbsOrigin(client, vecPosition);
 
 	AttachParticle(client, "merasmus_zap_beam_bits", 2.0);
-	Uberize(client, true);
+	
+	RemoveParticles2(client);
+	AttachParticle2(client, "burningplayer_rainbow_flame", "effect_hand_R");
+	
+	if (GetConVarBool(convar_UberFreedays))
+		Uberize(client, true);
+	if (GetConVarBool(convar_RainbowFreedays))
+		Rainbow(client, true);
+	
 	bHasFreeday[client] = true;
 
 	if (announce)
@@ -1296,7 +1329,9 @@ void RemoveClientFreeday(int client, int remover = -1, bool announce = true)
 		return;
 	}
 
+	RemoveParticles2(client);
 	Uberize(client, false);
+	Rainbow(client, false);
 	bHasFreeday[client] = false;
 
 	if (announce)
@@ -1456,6 +1491,60 @@ void PerformBlind(int target, int amount)
 	EndMessage();
 }
 
+void AttachParticle2(int iClient, char[] sParticleType, char[] sBoneAttachment)
+{
+	for (int i = 0; i <= 1; i++)
+	{
+		if (g_iParticle[iClient][i] != -1)
+			continue;
+		
+		g_iParticle[iClient][i] = CreateEntityByName("info_particle_system");
+		char sName[128];
+		
+		if (IsValidEdict(g_iParticle[iClient][i]))
+		{
+			float position[3];
+			GetEntPropVector(iClient, Prop_Send, "m_vecOrigin", position);
+			
+			TeleportEntity(g_iParticle[iClient][i], position, NULL_VECTOR, NULL_VECTOR);
+			
+			DispatchKeyValue(iClient, "targetname", sName);
+			
+			DispatchKeyValue(g_iParticle[iClient][i], "targetname", "tf2particle");
+			DispatchKeyValue(g_iParticle[iClient][i], "parentname", sName);
+			DispatchKeyValue(g_iParticle[iClient][i], "effect_name", sParticleType);
+			DispatchSpawn(g_iParticle[iClient][i]);
+			SetVariantString("!activator");
+			AcceptEntityInput(g_iParticle[iClient][i], "SetParent", iClient, g_iParticle[iClient][i], 0);
+			
+			if (strlen(sBoneAttachment) > 0)
+			{
+				SetVariantString(sBoneAttachment);
+				AcceptEntityInput(g_iParticle[iClient][i], "SetParentAttachmentMaintainOffset", g_iParticle[iClient][i], g_iParticle[iClient][i], 0);
+			}
+			
+			ActivateEntity(g_iParticle[iClient][i]);
+			AcceptEntityInput(g_iParticle[iClient][i], "start");
+			
+			break;
+		}
+	}
+}
+
+void RemoveParticles2(int iClient)
+{
+	for (int i = 0; i <= 1; i++)
+	{
+		if (g_iParticle[iClient][i] != -1)
+		{
+			if (IsValidEdict(g_iParticle[iClient][i]))
+				AcceptEntityInput(g_iParticle[iClient][i], "Kill");
+				
+			g_iParticle[iClient][i] = -1;
+		}
+	}
+}
+
 void Uberize(int iClient, bool bSet)
 {
 	if (!IsClientInGame(iClient))
@@ -1463,6 +1552,91 @@ void Uberize(int iClient, bool bSet)
 	
 	SetEntProp(iClient, Prop_Send, "m_bForcedSkin", bSet);
 	SetEntProp(iClient, Prop_Send, "m_nForcedSkin", 2);
+}
+
+// Thank you Pelipoika
+void Rainbow(int client, bool bSet)
+{
+	if (bSet)
+	{
+		if (MaxClients >= client > 0 && IsClientInGame(client))
+		{
+			if(!TF2_HasGlow(client))
+			{
+				int iGlow = TF2_CreateGlow2(client);
+				if(IsValidEntity(iGlow))
+				{
+					g_iPlayerGlowEntity[client] = EntIndexToEntRef(iGlow);
+					SDKHook(client, SDKHook_PreThink, OnPlayerThink);
+				}
+			}
+		}
+	}
+	else
+	{
+		int iGlow = EntRefToEntIndex(g_iPlayerGlowEntity[client]);
+		if(iGlow != INVALID_ENT_REFERENCE)
+		{
+			AcceptEntityInput(iGlow, "Kill");
+			g_iPlayerGlowEntity[client] = INVALID_ENT_REFERENCE;
+			SDKUnhook(client, SDKHook_PreThink, OnPlayerThink);
+		}
+	}
+}
+
+public Action OnPlayerThink(int client)
+{
+	int iGlow = EntRefToEntIndex(g_iPlayerGlowEntity[client]);
+	if(iGlow != INVALID_ENT_REFERENCE)
+	{
+		int color[4];
+		color[0] = RoundToNearest(Cosine((GetGameTime()) + client + 0) * 127.5 + 127.5);
+		color[1] = RoundToNearest(Cosine((GetGameTime()) + client + 2) * 127.5 + 127.5);
+		color[2] = RoundToNearest(Cosine((GetGameTime()) + client + 4) * 127.5 + 127.5);
+		color[3] = 255;
+		
+		SetVariantColor(color);
+		AcceptEntityInput(iGlow, "SetGlowColor");
+	}
+}
+
+int TF2_CreateGlow2(int iEnt)
+{
+	char oldEntName[64];
+	GetEntPropString(iEnt, Prop_Data, "m_iName", oldEntName, sizeof(oldEntName));
+
+	char strName[126], strClass[64];
+	GetEntityClassname(iEnt, strClass, sizeof(strClass));
+	Format(strName, sizeof(strName), "%s%i", strClass, iEnt);
+	DispatchKeyValue(iEnt, "targetname", strName);
+	
+	int ent = CreateEntityByName("tf_glow");
+	DispatchKeyValue(ent, "targetname", "RainbowGlow");
+	DispatchKeyValue(ent, "target", strName);
+	DispatchKeyValue(ent, "Mode", "0");
+	DispatchSpawn(ent);
+	
+	AcceptEntityInput(ent, "Enable");
+	
+	//Change name back to old name because we don't need it anymore.
+	SetEntProp(ent, Prop_Send, "m_iTeamNum", 2);
+	SetEntPropString(iEnt, Prop_Data, "m_iName", oldEntName);
+
+	return ent;
+}
+
+bool TF2_HasGlow(int iEnt)
+{
+	int index = -1;
+	while ((index = FindEntityByClassname(index, "tf_glow")) != -1)
+	{
+		if (GetEntPropEnt(index, Prop_Send, "m_hTarget") == iEnt)
+		{
+			return true;
+		}
+	}
+	
+	return false;
 }
 
 public Action Timer_DeFade(Handle timer)
@@ -1479,13 +1653,12 @@ public Action Timer_DeFade(Handle timer)
 public Action Hook_OnTakeDamage(int iVictim, int &iAttacker, int &iInflictor, float &fDamage, int &iDamageType, int &iWep, float fDmgForce[3], float fDmgPos[3], int iDmgCustom)
 {
 	int clientlr = GetClientOfUserId(g_iClientLR);
-	if (1 > iVictim > MaxClients
-	|| 1 > iAttacker > MaxClients)
-	{
-		return Plugin_Continue;
-	}
 	
-	if (TF2_GetClientTeam(iAttacker) == TFTeam_Blue && TF2Jail2_GetWarden() != iAttacker && (iVictim == clientlr || bHasFreeday[iVictim]))
+	if (0 < iVictim < MaxClients+1
+	&& 0 < iAttacker < MaxClients+1
+	&& TF2_GetClientTeam(iAttacker) == TFTeam_Blue
+	&& TF2Jail2_GetWarden() != iAttacker
+	&& (iVictim == clientlr || bHasFreeday[iVictim]))
 	{
 		fDamage = 0.0;
 		return Plugin_Changed;
