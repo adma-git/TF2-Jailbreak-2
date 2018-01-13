@@ -61,6 +61,11 @@ public void OnPluginStart()
 	convar_LGRGravity = CreateConVar("tf2jail2_LGR_gravity", "200", "The gravity set for Low Gravity Round", FCVAR_NOTIFY, true, 0.0, true, 800.0);
 }
 
+public void OnMapStart()
+{
+	PrecacheModel("models/buildables/dispenser_lvl3_light.mdl");
+}
+
 public void OnClientPutInServer(int iClient)
 {
 	SDKHook(iClient, SDKHook_OnTakeDamage, OnTakeDamage); // Godmode for blues during hide n seek
@@ -73,6 +78,7 @@ public void TF2Jail2_OnlastRequestRegistrations()
 	TF2Jail2_RegisterLR("Hide n Seek", _, _, HnS_OnLRRoundActive, HnS_OnLRRoundEnd);
 	TF2Jail2_RegisterLR("Guards Melee Only", _, GMO_OnLRRoundStart, _, _);
 	TF2Jail2_RegisterLR("Earthquake Round", _, _, Earthquake_OnLRRoundActive, Earthquake_OnLRRoundEnd);
+	TF2Jail2_RegisterLR("Dispenser Round", _, _, Dispenser_OnLRRoundActive, _);
 }
 
 /* Rapid Rocket Round */
@@ -279,6 +285,111 @@ public void Earthquake_OnLRRoundEnd(int chooser)
 }
 
 /* End Earthquake Round */
+
+/* Dispenser Round */
+
+public void Dispenser_OnLRRoundActive(int chooser)
+{
+	for (int i = 1; i <= MaxClients; i++) if (IsClientInGame(i) && IsPlayerAlive(i))
+	{
+		SetVariantString("models/buildables/dispenser_lvl3_light.mdl");
+		AcceptEntityInput(i, "SetCustomModel");
+		SetEntProp(i, Prop_Send, "m_bCustomModelRotates", true);
+		SetVariantInt(TF2_GetClientTeam(i) == TFTeam_Red ? 1 : 2);
+		AcceptEntityInput(i, "Skin");
+		
+		RemoveValveHat(i);
+		HideWeapons(i, true);
+	}
+}
+
+public void Dispenser_OnLRRoundEnd(int chooser)
+{
+	for (int i = 1; i <= MaxClients; i++)
+	{
+		SetVariantString("");
+		if (IsValidEntity(i))
+			AcceptEntityInput(i, "SetCustomModel");
+	}
+}
+
+void RemoveValveHat(int client, bool unhide = false)
+{
+	int edict = MaxClients + 1;
+	while((edict = FindEntityByClassnameSafe(edict, "tf_wearable")) != -1)
+	{
+		char netclass[32];
+		if (GetEntityNetClass(edict, netclass, sizeof(netclass)) && strcmp(netclass, "CTFWearable") == 0)
+		{
+			int idx = GetEntProp(edict, Prop_Send, "m_iItemDefinitionIndex");
+			if (idx != 57 && idx != 133 && idx != 231 && idx != 444 && idx != 405 && idx != 608 && idx != 642 && GetEntPropEnt(edict, Prop_Send, "m_hOwnerEntity") == client)
+			{
+				SetEntityRenderMode(edict, (unhide ? RENDER_NORMAL : RENDER_TRANSCOLOR));
+				SetEntityRenderColor(edict, 255, 255, 255, (unhide ? 255 : 0));
+			}
+		}
+	}
+
+	edict = MaxClients + 1;
+	while((edict = FindEntityByClassnameSafe(edict, "tf_powerup_bottle")) != -1)
+	{
+		char netclass[32];
+		if (GetEntityNetClass(edict, netclass, sizeof(netclass)) && strcmp(netclass, "CTFPowerupBottle") == 0)
+		{
+			int idx = GetEntProp(edict, Prop_Send, "m_iItemDefinitionIndex");
+			if (idx != 57 && idx != 133 && idx != 231 && idx != 444 && idx != 405 && idx != 608 && idx != 642 && GetEntPropEnt(edict, Prop_Send, "m_hOwnerEntity") == client)
+			{
+				SetEntityRenderMode(edict, (unhide ? RENDER_NORMAL : RENDER_TRANSCOLOR));
+				SetEntityRenderColor(edict, 255, 255, 255, (unhide ? 255 : 0));
+			}
+		}
+	}
+}
+
+void HideWeapons(int client, bool unhide = false)
+{
+	HideWeaponWearables(client, unhide);
+	int m_hMyWeapons = FindSendPropInfo("CTFPlayer", "m_hMyWeapons");
+
+	for (int i = 0, weapon; i < 47; i += 4)
+	{
+		weapon = GetEntDataEnt2(client, m_hMyWeapons + i);
+
+		char classname[64];
+		if (weapon > MaxClients && IsValidEdict(weapon) && GetEdictClassname(weapon, classname, sizeof(classname)) && StrContains(classname, "weapon") != -1)
+		{
+			SetEntityRenderMode(weapon, (unhide ? RENDER_NORMAL : RENDER_TRANSCOLOR));
+			SetEntityRenderColor(weapon, 255, 255, 255, (unhide ? 255 : 5));
+		}
+	}
+}
+
+void HideWeaponWearables(int client, bool unhide = false)
+{
+	int edict = MaxClients + 1;
+	while((edict = FindEntityByClassnameSafe(edict, "tf_wearable")) != -1)
+	{
+		char netclass[32];
+		if (GetEntityNetClass(edict, netclass, sizeof(netclass)) && strcmp(netclass, "CTFWearable") == 0)
+		{
+			int idx = GetEntProp(edict, Prop_Send, "m_iItemDefinitionIndex");
+			if (idx != 57 && idx != 133 && idx != 231 && idx != 444 && idx != 405 && idx != 608 && idx != 642) continue;
+			if (GetEntPropEnt(edict, Prop_Send, "m_hOwnerEntity") == client)
+			{
+				SetEntityRenderMode(edict, (unhide ? RENDER_NORMAL : RENDER_TRANSCOLOR));
+				SetEntityRenderColor(edict, 255, 255, 255, (unhide ? 255 : 0));
+			}
+		}
+	}
+}
+
+int FindEntityByClassnameSafe(int iStart, const char[] strClassname)
+{
+	while (iStart > -1 && !IsValidEntity(iStart)) iStart--;
+	return FindEntityByClassname(iStart, strClassname);
+}
+
+/* End Dispenser Round */
 
 bool ClearTimer(Handle &hTimer)
 {
