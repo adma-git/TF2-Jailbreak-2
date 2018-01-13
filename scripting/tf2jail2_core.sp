@@ -33,6 +33,7 @@ ConVar convar_BalanceRatio;
 
 //Globals
 Handle g_hTimerHud;
+Handle g_hUnmuteRedTimer;
 int g_iTimer;
 Handle g_hTimer;
 //bool bHasSpeaked[MAXPLAYERS + 1];
@@ -73,7 +74,9 @@ public void OnPluginStart()
 	HookEvent("teamplay_round_active", Event_OnRoundActive);
 	HookEvent("teamplay_round_win", Event_OnRoundEnd);
 	HookEvent("player_spawn", Event_OnPlayerSpawn);
-	HookEvent("post_inventory_application", Event_OnPlayerRegeneration, EventHookMode_Post);
+	HookEvent("player_death", Event_OnPlayerDeath);
+	HookEvent("post_inventory_application", Event_OnPlayerRegeneration);
+	HookEvent("player_team", Event_OnPlayerJoinTeam);
 
 	AddCommandListener(Listener_OnTeamChange, "jointeam");
 
@@ -81,6 +84,11 @@ public void OnPluginStart()
 
 	RegAdminCmd("sm_testtextformat", Command_TestTextFormat, ADMFLAG_ROOT);
 	RegAdminCmd("sm_holyshit", Command_HolyShit, ADMFLAG_ROOT);
+}
+
+public void OnClientPostAdminCheck(int iClient)
+{
+	MuteClient(iClient);
 }
 
 public Action Command_TestTextFormat(int client, int args)
@@ -198,10 +206,16 @@ public void Event_OnRoundStart(Event event, const char[] name, bool dontBroadcas
 		if (IsClientInGame(i))
 		{
 			CancelClientMenu(i, true);
+			
+			if (TF2_GetClientTeam(i) == TFTeam_Red)
+				MuteClient(i);
+			if (TF2_GetClientTeam(i) == TFTeam_Blue)
+				UnmuteClient(i);
 		}
 	}
 
 	g_iTimer = 0;
+	KillTimerSafe(g_hUnmuteRedTimer);
 	KillTimerSafe(g_hTimer);
 }
 
@@ -211,6 +225,8 @@ public void Event_OnRoundActive(Event event, const char[] name, bool dontBroadca
 
 	KillTimerSafe(g_hTimer);
 	g_hTimer = CreateTimer(1.0, Timer_ShowTimer, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+	g_hUnmuteRedTimer = CreateTimer(20.0, Timer_UnmuteRed, _, TIMER_FLAG_NO_MAPCHANGE);
+	CPrintToChatAll("%s Prisoners have been muted for 20 seconds.", g_sGlobalTag);
 	
 	if (TF2_GetTeamAliveClientCount(TFTeam_Blue) + TF2_GetTeamAliveClientCount(TFTeam_Red) >= 3)
 	{
@@ -275,10 +291,20 @@ public Action Timer_ShowTimer(Handle timer, any data)
 	return Plugin_Continue;
 }
 
+public Action Timer_UnmuteRed(Handle hTimer)
+{
+	for (int i = 1; i <= MaxClients; i++) if (IsClientInGame(i) && TF2_GetClientTeam(i) == TFTeam_Red)
+	{
+		UnmuteClient(i);
+		CPrintToChatAll("%s The prisoners have been unmuted.", g_sGlobalTag);
+	}
+}
+
 public void Event_OnRoundEnd(Event event, const char[] name, bool dontBroadcast)
 {
 	g_iTimer = 0;
 	KillTimerSafe(g_hTimer);
+	KillTimerSafe(g_hUnmuteRedTimer);
 	
 	for (int i = 1; i <= MaxClients; i++)
 	{
@@ -315,6 +341,12 @@ public void Event_OnPlayerSpawn(Event event, const char[] name, bool dontBroadca
 	}
 }
 
+public void Event_OnPlayerDeath(Event hEvent, const char[] sName, bool bBroadcast) 
+{
+	int iClient = GetClientOfUserId(hEvent.GetInt("userid"));
+	MuteClient(iClient);
+}
+
 public void Event_OnPlayerRegeneration(Event event, const char[] name, bool dontBroadcast)
 {
 	int client = GetClientOfUserId(GetEventInt(event, "userid"));
@@ -336,6 +368,13 @@ public void Event_OnPlayerRegeneration(Event event, const char[] name, bool dont
 		RequestFrame(Frame_KillGuardWeapons, client);
 		TF2Attrib_RemoveByName(client, "no double jump");
 	}
+}
+
+public void Event_OnPlayerJoinTeam(Event event, const char[] name, bool dontBroadcast)
+{
+	int client = GetClientOfUserId(GetEventInt(event, "userid"));
+	if (TF2_GetClientTeam(client) == TFTeam_Red)
+		MuteClient(client);
 }
 
 public void Frame_KillWeapons(any data)
@@ -681,4 +720,23 @@ stock int GetDefaultIDIForClass(TFClassType xClass, int iSlot)
 	}
 
 	return -1;
+}
+
+void MuteClient(int iClient)
+{
+	if (!CheckCommandAccess(iClient, "", ADMFLAG_CUSTOM1, true))
+	{
+		int flags = GetClientListeningFlags(iClient);
+		SetClientListeningFlags(iClient, flags |= VOICE_MUTED);
+		CPrintToChat(iClient, "%s {default}You have been muted.", g_sGlobalTag);
+	}
+}
+
+void UnmuteClient(int iClient)
+{
+	if (GetClientListeningFlags(iClient) & VOICE_MUTED == VOICE_MUTED)
+	{
+		SetClientListeningFlags(iClient, VOICE_NORMAL);
+		CPrintToChat(iClient, "%s {default}You have been unmuted.", g_sGlobalTag);
+	}
 }
