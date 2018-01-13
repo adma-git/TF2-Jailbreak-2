@@ -1479,8 +1479,8 @@ public Action Timer_DeFade(Handle timer)
 public Action Hook_OnTakeDamage(int iVictim, int &iAttacker, int &iInflictor, float &fDamage, int &iDamageType, int &iWep, float fDmgForce[3], float fDmgPos[3], int iDmgCustom)
 {
 	int clientlr = GetClientOfUserId(g_iClientLR);
-	if (0 > iVictim > MaxClients
-	|| 0 > iAttacker > MaxClients)
+	if (1 > iVictim > MaxClients
+	|| 1 > iAttacker > MaxClients)
 	{
 		return Plugin_Continue;
 	}
