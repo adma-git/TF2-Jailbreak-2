@@ -72,6 +72,7 @@ public void TF2Jail2_OnlastRequestRegistrations()
 	TF2Jail2_RegisterLR("Low Gravity Round", _, _, LG_OnLRRoundActive, LG_OnLRRoundEnd);
 	TF2Jail2_RegisterLR("Hide n Seek", _, _, HnS_OnLRRoundActive, HnS_OnLRRoundEnd);
 	TF2Jail2_RegisterLR("Guards Melee Only", _, GMO_OnLRRoundStart, _, _);
+	TF2Jail2_RegisterLR("Earthquake Round", _, _, Earthquake_OnLRRoundActive, Earthquake_OnLRRoundEnd);
 }
 
 /* Rapid Rocket Round */
@@ -264,6 +265,20 @@ public void GMO_OnLRRoundStart(int chooser)
 }
 
 /* End Guards Melee Only */
+
+/* Earthquake Round */
+
+public void Earthquake_OnLRRoundActive(int chooser)
+{
+	ScreenShakeAll(SHAKE_START, 10.0, 10.0, 999.0);
+}
+
+public void Earthquake_OnLRRoundEnd(int chooser)
+{
+	ScreenShakeAll(SHAKE_STOP, 0.0, 0.0, _);
+}
+
+/* End Earthquake Round */
 
 bool ClearTimer(Handle &hTimer)
 {
