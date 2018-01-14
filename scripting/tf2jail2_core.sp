@@ -168,6 +168,7 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 public void OnMapEnd()
 {
 	g_hTimer = null;
+	g_hUnmuteRedTimer = null;
 }
 
 public void OnConfigsExecuted()
@@ -298,6 +299,8 @@ public Action Timer_UnmuteRed(Handle hTimer)
 		UnmuteClient(i);
 		CPrintToChatAll("%s The prisoners have been unmuted.", g_sGlobalTag);
 	}
+	
+	g_hUnmuteRedTimer = null;
 }
 
 public void Event_OnRoundEnd(Event event, const char[] name, bool dontBroadcast)

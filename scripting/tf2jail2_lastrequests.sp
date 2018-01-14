@@ -30,6 +30,7 @@
 ConVar convar_Status;
 ConVar convar_RegiveLR;
 ConVar convar_DisplayLR;
+ConVar convar_NextMapLR;
 ConVar convar_UberFreedays;
 ConVar convar_RainbowFreedays;
 
@@ -110,6 +111,7 @@ public void OnPluginStart()
 	convar_Status = CreateConVar("sm_tf2jail2_lastrequests_status", "1", "Status of the plugin.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 	convar_RegiveLR = CreateConVar("sm_tf2jail2_regive_lr", "1", "Allow last request to be given when a next round last request is active.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 	convar_DisplayLR = CreateConVar("sm_tf2jail2_display_lr", "1", "Show the last request at the bottom.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+	convar_NextMapLR = CreateConVar("sm_tf2jail2_nextmap_lr", "0", "Carry last requests over map changes.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 	
 	convar_UberFreedays = CreateConVar("sm_tf2jail2_uber_freedays", "0", "Give freedays an uber effect", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 	convar_RainbowFreedays = CreateConVar("sm_tf2jail2_rainbiw_freedays", "1", "Give freedays a rainbow outline effect", FCVAR_NOTIFY, true, 0.0, true, 1.0);
@@ -165,6 +167,8 @@ public void OnMapEnd()
 {
 	g_iPrevClientLR = 0;
 	ClearLastRequest(-1, false);
+	if (!GetConVarBool(convar_NextMapLR))
+		g_sNextLRName[0] = '\0';
 }
 
 public void OnMapStart()
@@ -431,7 +435,7 @@ public void Event_OnRoundStart(Event event, const char[] name, bool dontBroadcas
 	g_bLRNextRound = false;
 	
 	if (GetConVarBool(convar_DisplayLR))
-	{
+{
 		SetHudTextParams(0.4, 0.95, 99999.0, 0, 255, 0, 255, 0, 0.0, 0.0, 0.0);
 		for (int i = 1; i <= MaxClients; i++)
 		{

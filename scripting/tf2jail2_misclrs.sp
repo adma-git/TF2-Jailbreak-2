@@ -78,7 +78,7 @@ public void TF2Jail2_OnlastRequestRegistrations()
 	TF2Jail2_RegisterLR("Hide n Seek", _, _, HnS_OnLRRoundActive, HnS_OnLRRoundEnd);
 	TF2Jail2_RegisterLR("Guards Melee Only", _, GMO_OnLRRoundStart, _, _);
 	TF2Jail2_RegisterLR("Earthquake Round", _, _, Earthquake_OnLRRoundActive, Earthquake_OnLRRoundEnd);
-	TF2Jail2_RegisterLR("Dispenser Round", _, _, Dispenser_OnLRRoundActive, _);
+	TF2Jail2_RegisterLR("Dispenser Round", _, _, Dispenser_OnLRRoundActive, Dispenser_OnLRRoundEnd);
 }
 
 /* Rapid Rocket Round */
@@ -298,18 +298,20 @@ public void Dispenser_OnLRRoundActive(int chooser)
 		SetVariantInt(TF2_GetClientTeam(i) == TFTeam_Red ? 1 : 2);
 		AcceptEntityInput(i, "Skin");
 		
-		RemoveValveHat(i);
-		HideWeapons(i, true);
+		RemoveValveHat(i, false);
+		HideWeapons(i, false);
 	}
 }
 
 public void Dispenser_OnLRRoundEnd(int chooser)
 {
-	for (int i = 1; i <= MaxClients; i++)
+	for (int i = 1; i <= MaxClients; i++) if (IsClientInGame(i))
 	{
 		SetVariantString("");
-		if (IsValidEntity(i))
-			AcceptEntityInput(i, "SetCustomModel");
+		AcceptEntityInput(i, "SetCustomModel");
+		
+		RemoveValveHat(i, true);
+		HideWeapons(i, true);
 	}
 }
 
