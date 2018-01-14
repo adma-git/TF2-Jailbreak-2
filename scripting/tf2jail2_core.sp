@@ -136,9 +136,9 @@ public Action Command_Jailmute(int client, int args)
 		{
 			if (TF2Jail2_GetWarden() != i)
 				MuteClient(i);
-			
-			CPrintToChatAll("%s All prisoners and guards have been muted.", g_sGlobalTag);
 		}
+		
+		CPrintToChatAll("%s All prisoners and guards have been muted.", g_sGlobalTag);
 	}
 	else
 	{
@@ -146,8 +146,9 @@ public Action Command_Jailmute(int client, int args)
 		for (int i = 1; i <= MaxClients; i++) if (IsClientInGame(i) && IsPlayerAlive(i))
 		{
 			UnmuteClient(i);
-			CPrintToChatAll("%s All prisoners and guards have been unmuted.", g_sGlobalTag);
 		}
+		
+		CPrintToChatAll("%s All prisoners and guards have been unmuted.", g_sGlobalTag);
 	}
 
 	return Plugin_Handled;
