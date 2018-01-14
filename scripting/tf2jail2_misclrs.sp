@@ -86,6 +86,8 @@ public void TF2Jail2_OnlastRequestRegistrations()
 	TF2Jail2_RegisterLR("Earthquake Round", _, _, Earthquake_OnLRRoundActive, Earthquake_OnLRRoundEnd);
 	TF2Jail2_RegisterLR("Dispenser Round", _, _, Dispenser_OnLRRoundActive, Dispenser_OnLRRoundEnd);
 	TF2Jail2_RegisterLR("Pidgeon Hunt", _, _, PH_OnLRRoundActive, PH_OnLRRoundEnd);
+	TF2Jail2_RegisterLR("Midget Round", _, _, Midget_OnLRRoundActive, _);
+	TF2Jail2_RegisterLR("Air Swim Round", _, _, AS_OnLRRoundActive, _);
 }
 
 /* Rapid Rocket Round */
@@ -497,6 +499,28 @@ void RemoveWeapons(int client)
 }
 
 /* End Pidgeon Hunt */
+
+/* Midget Round */
+
+public void Midget_OnLRRoundActive(int chooser)
+{
+	for (int i = 1; i <= MaxClients; i++) if (IsClientInGame(i) && IsPlayerAlive(i))
+	{
+		SetEntPropFloat(i, Prop_Data, "m_flModelScale", 0.5);
+	}
+}
+
+/* End Midget Round */
+
+public void AS_OnLRRoundActive(int chooser)
+{
+	for (int i = 1; i <= MaxClients; i++) if (IsClientInGame(i) && IsPlayerAlive(i))
+	{
+		TF2_AddCondition(i, TFCond_SwimmingNoEffects, TFCondDuration_Infinite);
+	}
+}
+
+/* End Midget Round */
 
 bool ClearTimer(Handle &hTimer)
 {
