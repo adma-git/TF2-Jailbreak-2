@@ -20,6 +20,7 @@
 
 //Our Includes
 #include <tf2jail2/tf2jail2_core>
+#include <tf2jail2/tf2jail2_warden>
 
 #undef REQUIRE_PLUGIN
 #include <tf2jail2/tf2jail2_bans>
@@ -34,8 +35,9 @@ ConVar convar_BalanceRatio;
 //Globals
 Handle g_hTimerHud;
 Handle g_hUnmuteRedTimer;
-int g_iTimer;
 Handle g_hTimer;
+int g_iTimer;
+bool g_bJailmute;
 //bool bHasSpeaked[MAXPLAYERS + 1];
 
 Handle g_hudSpyNames;
@@ -82,6 +84,12 @@ public void OnPluginStart()
 
 	g_hudSpyNames = CreateHudSynchronizer();
 
+	RegAdminCmd("sm_jailmute", Command_Jailmute, ADMFLAG_GENERIC);
+	RegAdminCmd("sm_jm", Command_Jailmute, ADMFLAG_GENERIC);
+	
+	RegAdminCmd("sm_teamswitch", Command_Teamswitch, ADMFLAG_GENERIC);
+	RegAdminCmd("sm_ts", Command_Teamswitch, ADMFLAG_GENERIC);
+	
 	RegAdminCmd("sm_testtextformat", Command_TestTextFormat, ADMFLAG_ROOT);
 	RegAdminCmd("sm_holyshit", Command_HolyShit, ADMFLAG_ROOT);
 }
@@ -119,6 +127,43 @@ public Action Command_HolyShit(int client, int args)
 	return Plugin_Handled;
 }
 
+public Action Command_Jailmute(int client, int args)
+{
+	if (!g_bJailmute)
+	{
+		g_bJailmute = true;
+		for (int i = 1; i <= MaxClients; i++) if (IsClientInGame(i))
+		{
+			if (TF2Jail2_GetWarden() != i)
+				MuteClient(i);
+			
+			CPrintToChatAll("%s All prisoners and guards have been muted.", g_sGlobalTag);
+		}
+	}
+	else
+	{
+		g_bJailmute = false;
+		for (int i = 1; i <= MaxClients; i++) if (IsClientInGame(i) && IsPlayerAlive(i))
+		{
+			UnmuteClient(i);
+			CPrintToChatAll("%s All prisoners and guards have been unmuted.", g_sGlobalTag);
+		}
+	}
+
+	return Plugin_Handled;
+}
+
+public Action Command_Teamswitch(int client, int args)
+{
+	char sArg[MAX_NAME_LENGTH];
+	GetCmdArgString(sArg, MAX_NAME_LENGTH);
+	int iTarget = FindTarget(client, sArg);
+	
+	TF2_ChangeClientTeam(iTarget, TF2_GetClientTeam(iTarget) == TFTeam_Red ? TFTeam_Blue : TFTeam_Red);
+	
+	return Plugin_Handled;
+}
+
 void GetRandomPosition(float result[3])
 {
 	float vWorldMins[3]; float vWorldMaxs[3];
@@ -142,28 +187,6 @@ void __GetRandomPostion(float result[3], float mins[3], float maxs[3])
 		__GetRandomPostion(result, mins, maxs);
 	}
 }
-
-/*public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3], float angles[3], int &weapon, int &subtype, int &cmdnum, int &tickcount, int &seed, int mouse[2])
-{
-	if (client == 0 || client > MaxClients || !IsClientInGame(client) || !IsPlayerAlive(client) || IsFakeClient(client))
-	{
-		return Plugin_Continue;
-	}
-
-	int target = GetClientAimTarget(client, true);
-
-	if (target != -1)
-	{
-		SetHudTextParams(-1.0, -1.0, 0.05, 255, 00, 0, 255, 0, 0.0, 0.0, 0.0);
-		ShowSyncHudText(client, g_hudSpyNames, "%s: %N", TF2_GetClientTeam(target) == TFTeam_Blue ? "Guard" : "Prisoner", target);
-	}
-	else
-	{
-		ClearSyncHud(client, g_hudSpyNames);
-	}
-
-	return Plugin_Continue;
-}*/
 
 public void OnMapEnd()
 {
@@ -215,6 +238,7 @@ public void Event_OnRoundStart(Event event, const char[] name, bool dontBroadcas
 		}
 	}
 
+	g_bJailmute = false;
 	g_iTimer = 0;
 	KillTimerSafe(g_hUnmuteRedTimer);
 	KillTimerSafe(g_hTimer);
@@ -737,7 +761,7 @@ void MuteClient(int iClient)
 
 void UnmuteClient(int iClient)
 {
-	if (GetClientListeningFlags(iClient) & VOICE_MUTED == VOICE_MUTED)
+	if (GetClientListeningFlags(iClient) & VOICE_MUTED == VOICE_MUTED && !g_bJailmute)
 	{
 		SetClientListeningFlags(iClient, VOICE_NORMAL);
 		CPrintToChat(iClient, "%s {default}You have been unmuted.", g_sGlobalTag);
