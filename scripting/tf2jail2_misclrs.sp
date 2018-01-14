@@ -7,6 +7,7 @@
 #include <sourcemod>
 #include <tf2_stocks>
 #include <tf2>
+#include <tf2attributes>
 
 //External Includes
 #include <sourcemod-misc>
@@ -27,16 +28,18 @@
 Handle g_hRRRTimer = null,
 g_iHnSGuardTimer = null,
 g_hHnSHideTimer = null,
-g_hHnSSeekTimer = null;
+g_hHnSSeekTimer = null,
+g_hBluePidgeonTimer = null;
 
 int g_iRRRTime,
 g_iHnSHideTime,
 g_iHnSSeekTime,
-g_iHnSGuardTime;
+g_iHnSGuardTime,
+g_iPHTime;
 
 UserMsg g_FadeUserMsgId;
 
-ConVar convar_HnSGuardTime, convar_HnSHideTime, convar_HnSSeekTime, convar_RRRTime, convar_LGRGravity;
+ConVar convar_HnSGuardTime, convar_HnSHideTime, convar_HnSSeekTime, convar_RRRTime, convar_BluePidgeonTime, convar_LGRGravity;
 
 public Plugin myinfo = 
 {
@@ -58,12 +61,15 @@ public void OnPluginStart()
 	convar_HnSHideTime = CreateConVar("tf2jail2_hidenseek_hidetime", "90", "The time prisoners have to hide", FCVAR_NOTIFY, true, 30.0, true, 300.0);
 	convar_HnSSeekTime = CreateConVar("tf2jail2_hidenseek_seektime", "180", "The time guards have to seek before round is reset", FCVAR_NOTIFY, true, 30.0, true, 360.0);	
 	convar_RRRTime = CreateConVar("tf2jail2_RRR_time", "20", "The time before friendly fire is enabled for Rapid Rocket Round", FCVAR_NOTIFY, true, 0.0, true, 300.0);
+	convar_BluePidgeonTime = CreateConVar("tf2jail2_pidgeon_time", "20", "The time before guards turn into pidgeons.", FCVAR_NOTIFY, true, 0.0, true, 300.0);
 	convar_LGRGravity = CreateConVar("tf2jail2_LGR_gravity", "200", "The gravity set for Low Gravity Round", FCVAR_NOTIFY, true, 0.0, true, 800.0);
 }
 
 public void OnMapStart()
 {
 	PrecacheModel("models/buildables/dispenser_lvl3_light.mdl");
+	PrecacheModel("models/props_forest/bird.mdl");
+	PrecacheSound("vo/halloween_merasmus/sf12_magicwords07.mp3");
 }
 
 public void OnClientPutInServer(int iClient)
@@ -79,6 +85,7 @@ public void TF2Jail2_OnlastRequestRegistrations()
 	TF2Jail2_RegisterLR("Guards Melee Only", _, GMO_OnLRRoundStart, _, _);
 	TF2Jail2_RegisterLR("Earthquake Round", _, _, Earthquake_OnLRRoundActive, Earthquake_OnLRRoundEnd);
 	TF2Jail2_RegisterLR("Dispenser Round", _, _, Dispenser_OnLRRoundActive, Dispenser_OnLRRoundEnd);
+	TF2Jail2_RegisterLR("Pidgeon Hunt", _, _, PH_OnLRRoundActive, PH_OnLRRoundEnd);
 }
 
 /* Rapid Rocket Round */
@@ -392,6 +399,104 @@ int FindEntityByClassnameSafe(int iStart, const char[] strClassname)
 }
 
 /* End Dispenser Round */
+
+/* Pidgeon Hunt */
+
+public void PH_OnLRRoundActive(int chooser)
+{
+	g_iPHTime = GetConVarInt(convar_BluePidgeonTime);
+	g_hBluePidgeonTimer = CreateTimer(1.0, Timer_BluePidegon, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+	
+	for (int i = 1; i <= MaxClients; i++) if (IsClientInGame(i) && IsPlayerAlive(i))
+	{
+		if (TF2_GetClientTeam(i) == TFTeam_Red)
+		{
+			SetEntityMoveType(i, MOVETYPE_NONE);
+		}
+	}
+	
+	TF2Jail2_OpenCells(-1, false, true);
+	TF2Jail2_LockWarden(true);
+}
+
+public void PH_OnLRRoundEnd(int chooser)
+{
+	SetConVarInt(FindConVar("tf_scout_air_dash_count"), 1);
+	ClearTimer(g_hBluePidgeonTimer);
+	g_iPHTime = 0;
+	for (int i = 1; i <= MaxClients; i++) if (IsClientInGame(i))
+	{
+		SetVariantString("");
+		AcceptEntityInput(i, "SetCustomModel");
+		
+		RemoveValveHat(i, true);
+	}
+}
+
+public Action Timer_BluePidegon(Handle hTimer)
+{
+	PrintCenterTextAll("Guards have %i seconds to open cells and disperse!", g_iPHTime);
+	
+	if (g_iPHTime > 0)
+		g_iPHTime--;
+	else
+	{
+		for (int i = 1; i <= MaxClients; i++)
+		{
+			if (IsClientInGame(i) && IsPlayerAlive(i))
+			{
+				if (TF2_GetClientTeam(i) == TFTeam_Blue)
+				{
+					TF2_SetPlayerClass(i, TFClass_Scout);
+					SetEntPropFloat(i, Prop_Send, "m_flMaxspeed", 50.0);
+					SetEntityHealth(i, 10);
+					SetEntProp(i, Prop_Data, "m_iMaxHealth", 10);
+					SetConVarInt(FindConVar("tf_scout_air_dash_count"), 999);
+					
+					SetVariantString("models/props_forest/bird.mdl");
+					AcceptEntityInput(i, "SetCustomModel");
+					SetEntProp(i, Prop_Send, "m_bCustomModelRotates", true);
+					SetEntPropFloat(i, Prop_Data, "m_flModelScale", 2.0);
+					
+					TF2_CreateGlow("pidgeon", i, { 0, 255, 0, 255 } );
+					RemoveValveHat(i, false);
+					RemoveWeapons(i);
+				}
+				
+				if (TF2_GetClientTeam(i) == TFTeam_Red)
+				{
+					SetEntityMoveType(i, MOVETYPE_WALK);
+					TF2_SetPlayerClass(i, TFClass_Scout);
+					TF2_RegeneratePlayer(i);
+					TF2_StripToMelee(i);
+					TF2Items_GiveWeapon(i, 9014);
+					TF2Attrib_RemoveByName(i, "no double jump");
+					SetPlayerWeaponAmmo(i, 1, 10, 999);
+				}
+			}
+		}	
+		
+		EmitSoundToAll("vo/halloween_merasmus/sf12_magicwords07.mp3");
+		g_hBluePidgeonTimer = null;
+		return Plugin_Stop;
+	}
+
+	return Plugin_Continue;
+}
+
+void RemoveWeapons(int client)
+{
+	TF2_RemoveWeaponSlot(client, TFWeaponSlot_Primary);
+	TF2_RemoveWeaponSlot(client, TFWeaponSlot_Secondary);
+	TF2_RemoveWeaponSlot(client, TFWeaponSlot_Melee);
+	TF2_RemoveWeaponSlot(client, TFWeaponSlot_Grenade);
+	TF2_RemoveWeaponSlot(client, TFWeaponSlot_Building);
+	TF2_RemoveWeaponSlot(client, TFWeaponSlot_PDA);
+	TF2_RemoveWeaponSlot(client, TFWeaponSlot_Item1);
+	TF2_RemoveWeaponSlot(client, TFWeaponSlot_Item2);
+}
+
+/* End Pidgeon Hunt */
 
 bool ClearTimer(Handle &hTimer)
 {
