@@ -23,6 +23,7 @@
 
 //ConVars
 ConVar convar_Status;
+ConVar convar_MenuCooldown;
 
 Handle convar_FriendlyFire;
 Handle convar_TFPushAway;
@@ -49,6 +50,7 @@ public void OnPluginStart()
 	LoadTranslations("common.phrases");
 
 	convar_Status = CreateConVar("sm_tf2jail2_wardenmenu_status", "1", "Status of the plugin.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+	convar_MenuCooldown = CreateConVar("sm_tf2jail2_wardenmenu_cooldown", "0", "Enable cool down for warden menu.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 
 	RegConsoleCmd("sm_wm", Command_WardenMenu, "Access the Warden menu.");
 	RegConsoleCmd("sm_wmenu", Command_WardenMenu, "Access the Warden menu.");
@@ -107,7 +109,6 @@ void ShowWardenMenu(int client, bool admin = false)
 	Handle menu = CreateMenu(MenuHandler_WardenMenu);
 	SetMenuTitle(menu, "TF2Jail 2 - Warden Menu");
 
-	AddMenuItem(menu, "", "---", ITEMDRAW_DISABLED);
 	AddMenuItem(menu, "toggle_cells", "Toggle: Cells");
 	AddMenuItem(menu, "toggle_friendlyfire", "Toggle: Friendly Fire");
 	AddMenuItem(menu, "toggle_pushback", "Toggle: Pushback");
@@ -193,7 +194,7 @@ public int MenuHandler_WardenMenu(Menu menu, MenuAction action, int param1, int 
 				return;
 			}
 
-			if (IsOnCooldown())
+			if (GetConVarBool(convar_MenuCooldown) && IsOnCooldown())
 			{
 				CPrintToChat(param1, "%s {red}ERROR: {default}Warden actions are currently on cooldown. (%i seconds remaining)", g_sGlobalTag, g_iTimer_Cooldown);
 				ShowWardenMenu(param1, admin);
@@ -260,6 +261,7 @@ public int MenuHandler_WardenMenu(Menu menu, MenuAction action, int param1, int 
 				}
 
 				PrintCenterTextAll("%i %s %i = ?", first, sEquasion, second);
+				PrintCenterText(param1, "%i %s %i = %i", first, sEquasion, second, answer);
 				CPrintToChat(param1, "%s Answer: %i", g_sGlobalTag, answer);
 				ShowWardenMenu(param1, admin);
 			}
